@@ -1,0 +1,3233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Root Cause Analysis - JBoss Monitor</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <style>
+        /* ── Upload Grid ── */
+        .rca-upload-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 20px;
+        }
+        .rca-dropzone {
+            position: relative;
+            border-radius: 12px;
+            padding: 32px 20px 28px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(8, 18, 35, 0.5);
+            backdrop-filter: blur(10px);
+            overflow: hidden;
+        }
+        .rca-dropzone::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 12px;
+            padding: 2px;
+            background: linear-gradient(135deg, rgba(45,63,82,0.8), rgba(45,63,82,0.4), rgba(45,63,82,0.8));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            transition: all 0.3s ease;
+        }
+        .rca-dropzone:hover::before, .rca-dropzone.dragover::before {
+            background: linear-gradient(135deg, #00d4ff, #aa44ff, #00d4ff);
+            animation: borderRotate 3s linear infinite;
+            background-size: 200% 200%;
+        }
+        .rca-dropzone:hover, .rca-dropzone.dragover {
+            background: rgba(0,212,255,0.04);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        .rca-dropzone.has-file::before {
+            background: linear-gradient(135deg, #00ff88, #00cc66, #00ff88);
+            animation: none;
+        }
+        .rca-dropzone.has-file {
+            background: rgba(0,255,136,0.04);
+            box-shadow: 0 0 24px rgba(0,255,136,0.08);
+        }
+        @keyframes borderRotate {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        .rca-dropzone input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .rca-dz-icon {
+            width: 52px;
+            height: 52px;
+            margin: 0 auto 14px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            background: rgba(0,212,255,0.08);
+            color: var(--accent);
+            transition: all 0.3s;
+        }
+        .rca-dropzone:hover .rca-dz-icon {
+            background: rgba(0,212,255,0.15);
+            transform: scale(1.05);
+        }
+        .rca-dropzone.has-file .rca-dz-icon {
+            background: rgba(0,255,136,0.12);
+            color: var(--healthy);
+        }
+        .rca-dz-label {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 4px;
+            color: var(--text-primary);
+        }
+        .rca-dz-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+        .rca-dz-file-info {
+            margin-top: 12px;
+            font-size: 12px;
+            font-family: var(--font-mono);
+            color: var(--healthy);
+            word-break: break-all;
+        }
+        .rca-dz-check {
+            display: none;
+            position: absolute;
+            top: 12px;
+            right: 14px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--healthy);
+            color: #fff;
+            font-size: 13px;
+            line-height: 24px;
+            text-align: center;
+            font-weight: 700;
+            box-shadow: 0 2px 8px rgba(0,255,136,0.4);
+        }
+        .rca-dropzone.has-file .rca-dz-check { display: block; }
+        .rca-dz-clear {
+            display: inline-block;
+            margin-top: 8px;
+            font-size: 11px;
+            color: var(--critical);
+            cursor: pointer;
+            background: none;
+            border: none;
+            text-decoration: none;
+            padding: 3px 10px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            font-family: var(--font-sans);
+        }
+        .rca-dz-clear:hover {
+            background: rgba(255,34,68,0.1);
+            color: #ff4466;
+        }
+
+        /* ── Analyze Bar ── */
+        .rca-analyze-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 24px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+        }
+        .rca-file-count {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        .btn-ai {
+            background: linear-gradient(135deg, #00d4ff, #aa44ff);
+            border: none;
+            color: #fff;
+            padding: 10px 22px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 16px rgba(0,212,255,0.2);
+            font-family: var(--font-sans);
+        }
+        .btn-ai:hover {
+            box-shadow: 0 4px 24px rgba(0,212,255,0.35);
+            transform: translateY(-1px);
+        }
+        .btn-ai:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* ── Results ── */
+        #rcaResults { display: none; }
+
+        /* ── Summary Stat Cards ── */
+        .rca-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .rca-stat-card {
+            background: rgba(8, 18, 35, 0.6);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+            transition: all 0.2s;
+        }
+        .rca-stat-card:hover {
+            border-color: rgba(0,212,255,0.3);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+        }
+        .rca-stat-card::before {
+            content: '';
+            display: block;
+            width: 36px;
+            height: 4px;
+            border-radius: 2px;
+            margin-bottom: 14px;
+        }
+        .rca-stat-card.stat-blue::before   { background: var(--accent); }
+        .rca-stat-card.stat-orange::before  { background: var(--warning); }
+        .rca-stat-card.stat-red::before     { background: var(--critical); }
+        .rca-stat-card.stat-green::before   { background: var(--healthy); }
+        .rca-stat-card.stat-purple::before  { background: #aa44ff; }
+        .rca-stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .rca-stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            color: var(--text-primary);
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+        .rca-stat-sub {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* ── Findings ── */
+        .rca-findings-toggle {
+            display: block;
+            width: 100%;
+            margin-top: 4px;
+            padding: 11px 16px;
+            border-radius: 10px;
+            border: 1px dashed var(--border-color);
+            background: rgba(0,212,255,0.04);
+            color: var(--accent);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .rca-findings-toggle:hover {
+            background: rgba(0,212,255,0.10);
+            border-color: var(--accent);
+        }
+        .rca-finding {
+            padding: 20px 24px;
+            border-radius: 10px;
+            margin-bottom: 14px;
+            border-left: 6px solid var(--border-color);
+            background: rgba(8, 18, 35, 0.4);
+            transition: all 0.2s;
+        }
+        .rca-finding:hover {
+            background: rgba(8, 18, 35, 0.7);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+        .rca-finding.severity-CRITICAL {
+            background: rgba(255,34,68,0.04);
+            border-left-color: var(--critical);
+        }
+        .rca-finding.severity-CRITICAL:hover { background: rgba(255,34,68,0.08); }
+        .rca-finding.severity-WARNING {
+            background: rgba(255,170,0,0.04);
+            border-left-color: var(--warning);
+        }
+        .rca-finding.severity-WARNING:hover { background: rgba(255,170,0,0.08); }
+        .rca-finding.severity-INFO {
+            background: rgba(0,212,255,0.04);
+            border-left-color: var(--accent);
+        }
+        .rca-finding.severity-INFO:hover { background: rgba(0,212,255,0.08); }
+        .rca-finding-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .rca-sev-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .rca-sev-badge.CRITICAL { background: rgba(255,34,68,0.15); color: var(--critical); border: 1px solid rgba(255,34,68,0.25); }
+        .rca-sev-badge.WARNING  { background: rgba(255,170,0,0.15); color: var(--warning); border: 1px solid rgba(255,170,0,0.25); }
+        .rca-sev-badge.INFO     { background: rgba(0,212,255,0.15); color: var(--accent); border: 1px solid rgba(0,212,255,0.25); }
+        .rca-cat-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 600;
+            font-family: var(--font-mono);
+            background: rgba(139,148,158,0.1);
+            color: var(--text-secondary);
+            border: 1px solid rgba(139,148,158,0.15);
+        }
+        .rca-occ-badge {
+            display: inline-block;
+            padding: 2px 9px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            background: rgba(0,212,255,0.12);
+            color: var(--accent);
+            border: 1px solid rgba(0,212,255,0.25);
+        }
+        .rca-finding-title {
+            font-weight: 600;
+            font-size: 15px;
+            color: var(--text-primary);
+        }
+        .rca-finding-desc {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 14px;
+            line-height: 1.6;
+        }
+        .rca-evidence-list {
+            list-style: none;
+            padding: 0 0 0 14px;
+            margin: 0 0 14px 0;
+            border-left: 2px solid rgba(0,212,255,0.15);
+        }
+        .rca-evidence-list li {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 8px 0 8px 14px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            position: relative;
+            line-height: 1.5;
+        }
+        .rca-evidence-list li::before {
+            content: '';
+            position: absolute;
+            left: -7px;
+            top: 14px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--bg-primary);
+            border: 2px solid rgba(0,212,255,0.4);
+            flex-shrink: 0;
+        }
+        .rca-evidence-src {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: rgba(0,212,255,0.1);
+            color: var(--accent);
+            white-space: nowrap;
+            flex-shrink: 0;
+            border: 1px solid rgba(0,212,255,0.15);
+        }
+        .rca-recommendation {
+            font-size: 12px;
+            color: var(--healthy);
+            padding: 12px 16px;
+            background: rgba(0,255,136,0.05);
+            border-radius: 8px;
+            border: 1px solid rgba(0,255,136,0.12);
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            line-height: 1.5;
+        }
+        .rca-recommendation::before {
+            content: '\2192';
+            font-weight: 700;
+            font-size: 14px;
+            flex-shrink: 0;
+            margin-top: -1px;
+        }
+
+        /* ── Prime suspect + cross-file trace chain ── */
+        .rca-suspect {
+            font-size: 12px;
+            color: var(--warning, #ffaa00);
+            padding: 8px 14px;
+            margin: 0 0 12px 0;
+            background: rgba(255,170,0,0.06);
+            border: 1px solid rgba(255,170,0,0.18);
+            border-radius: 8px;
+        }
+        .rca-suspect-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--warning, #ffaa00);
+            margin-right: 8px;
+        }
+        .rca-trace {
+            margin: 0 0 14px 0;
+            padding: 14px;
+            background: rgba(0,212,255,0.03);
+            border: 1px solid rgba(0,212,255,0.12);
+            border-radius: 10px;
+        }
+        .rca-trace-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--accent);
+            margin-bottom: 10px;
+        }
+        .rca-trace-step {
+            background: rgba(8, 18, 35, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+        .rca-trace-step-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .rca-trace-label { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+        .rca-trace-body { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+        .rca-trace-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+        .rca-trace-arrow { text-align: center; color: var(--accent); font-size: 14px; line-height: 1.4; opacity: 0.6; }
+        .rca-trace-query {
+            font-size: 11px;
+            padding: 4px 0;
+            border-top: 1px solid rgba(255,255,255,0.04);
+            margin-top: 4px;
+            word-break: break-all;
+        }
+        .rca-q-ms {
+            display: inline-block;
+            min-width: 56px;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+        .rca-trace-query.rca-q-warn .rca-q-ms { color: var(--warning, #ffaa00); }
+        .rca-trace-query.rca-q-crit .rca-q-ms { color: var(--critical, #ff2244); }
+        .rca-trace-frame { font-size: 11px; color: var(--text-muted); padding: 1px 0 1px 12px; word-break: break-all; }
+        .rca-tx-badge, .rca-lvl {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 9px;
+            font-weight: 700;
+            padding: 1px 6px;
+            border-radius: 4px;
+            margin-right: 4px;
+        }
+        .rca-tx-abort, .rca-lvl-error, .rca-lvl-fatal { background: rgba(255,34,68,0.15); color: var(--critical, #ff2244); }
+        .rca-tx-ok { background: rgba(0,255,136,0.12); color: var(--healthy, #00ff88); }
+        .rca-tx-other, .rca-lvl-warn { background: rgba(255,170,0,0.12); color: var(--warning, #ffaa00); }
+
+        /* ── Thread State Pills ── */
+        .state-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-family: var(--font-mono);
+            background: rgba(8, 18, 35, 0.6);
+            border: 1px solid var(--border-color);
+            transition: all 0.2s;
+        }
+        .state-pill:hover { border-color: rgba(0,212,255,0.3); }
+        .state-pill .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .state-pill .pill-count {
+            font-weight: 700;
+            margin-left: 2px;
+        }
+        .state-pills-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        /* ── Time severity classes ── */
+        .time-critical { color: var(--critical); font-weight: 600; }
+        .time-warning  { color: var(--warning); font-weight: 600; }
+        .time-ok       { color: var(--healthy); }
+
+        /* ── Timeline ── */
+        .timeline-container {
+            position: relative;
+            padding-left: 28px;
+        }
+        .timeline-container::before {
+            content: '';
+            position: absolute;
+            left: 12px;
+            top: 10px;
+            bottom: 10px;
+            width: 2px;
+            background: linear-gradient(to bottom, rgba(0,212,255,0.3), rgba(170,68,255,0.3), rgba(0,212,255,0.1));
+            border-radius: 1px;
+        }
+        .timeline-event {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            padding: 12px 16px;
+            font-size: 13px;
+            position: relative;
+            margin-bottom: 4px;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+        .timeline-event:hover {
+            background: rgba(8, 18, 35, 0.5);
+        }
+        .timeline-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            margin-top: 3px;
+            position: absolute;
+            left: -22px;
+            top: 14px;
+            box-shadow: 0 0 8px rgba(0,0,0,0.3);
+            border: 2px solid var(--bg-primary);
+        }
+        .timeline-dot.slow_request { background: var(--warning); }
+        .timeline-dot.error        { background: var(--critical); }
+        .timeline-dot.gc_pause     { background: #aa44ff; }
+        .timeline-dot.blocked      { background: var(--critical); }
+        .timeline-dot.info         { background: var(--accent); }
+        .timeline-ts {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            flex: 0 0 150px;
+            white-space: nowrap;
+        }
+        .timeline-detail {
+            flex: 1;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+        .timeline-type-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-right: 8px;
+        }
+
+        /* ── Contention Groups ── */
+        .contention-group {
+            padding: 16px 20px;
+            background: rgba(255,34,68,0.03);
+            border: 1px solid rgba(255,34,68,0.12);
+            border-radius: 10px;
+            margin-bottom: 12px;
+            transition: all 0.2s;
+        }
+        .contention-group:hover {
+            background: rgba(255,34,68,0.06);
+            border-color: rgba(255,34,68,0.2);
+        }
+        .contention-lock {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--critical);
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .contention-threads {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        /* ── Empty State ── */
+        .rca-empty-state {
+            text-align: center;
+            padding: 40px 24px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+        .rca-empty-icon {
+            font-size: 36px;
+            margin-bottom: 12px;
+            opacity: 0.3;
+        }
+        .rca-empty-text {
+            font-size: 13px;
+            color: var(--text-muted);
+            max-width: 280px;
+            margin: 0 auto;
+            line-height: 1.5;
+        }
+
+        /* ── Thread Stack Modal ── */
+        .rca-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .rca-modal-overlay.active { display: flex; }
+        .rca-modal-box {
+            background: rgba(8, 18, 35, 0.95);
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            border-radius: var(--radius);
+            width: 720px;
+            max-width: 92vw;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 48px rgba(0, 0, 0, 0.6), 0 0 30px rgba(0, 212, 255, 0.05);
+            backdrop-filter: blur(12px);
+        }
+        .rca-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .rca-modal-header h3 {
+            margin: 0; font-size: 14px; color: var(--text-primary);
+            font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .rca-modal-close {
+            background: none; border: none; color: var(--text-muted);
+            font-size: 22px; cursor: pointer; padding: 0 4px; line-height: 1; transition: color 0.2s;
+        }
+        .rca-modal-close:hover { color: var(--accent); }
+        .rca-modal-body {
+            padding: 16px 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .rca-thread-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 8px 16px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+        .rca-thread-meta-item { display: flex; gap: 6px; }
+        .rca-thread-meta-item .meta-label { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .rca-thread-meta-item .meta-value { color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; }
+        .rca-stack-trace-box {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 14px 16px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .rca-stack-frame-app { color: var(--accent); }
+        .rca-thread-link {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+            text-underline-offset: 3px;
+        }
+        .rca-thread-link:hover {
+            text-decoration-style: solid;
+            text-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+        }
+
+        /* ── Thread state badges (matches threads.html) ── */
+        .thread-state-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid transparent;
+        }
+        .thread-state-badge.runnable { background: rgba(0, 255, 136, 0.06); color: var(--healthy); border-color: rgba(0, 255, 136, 0.15); }
+        .thread-state-badge.blocked { background: rgba(255, 34, 68, 0.06); color: var(--critical); border-color: rgba(255, 34, 68, 0.15); }
+        .thread-state-badge.waiting { background: rgba(255, 170, 0, 0.06); color: var(--warning); border-color: rgba(255, 170, 0, 0.15); }
+        .thread-state-badge.timed-waiting { background: rgba(0, 212, 255, 0.06); color: var(--accent); border-color: rgba(0, 212, 255, 0.15); }
+        .thread-state-badge.new,
+        .thread-state-badge.terminated { background: rgba(62, 96, 128, 0.08); color: var(--text-muted); border-color: rgba(62, 96, 128, 0.15); }
+
+        /* ── Thread Details tabbed layout (matches threads.html) ── */
+        .th-tab-bar {
+            display: flex; gap: 0; border-bottom: 1px solid var(--border-color);
+            margin: 0 -24px 20px -24px; padding: 0 24px; flex-wrap: wrap;
+        }
+        .th-tab-btn {
+            padding: 12px 20px; background: none; border: none; color: var(--text-muted);
+            font-size: 12px; font-weight: 600; cursor: pointer; position: relative;
+            transition: color 0.2s; white-space: nowrap; font-family: var(--font-mono);
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .th-tab-btn:hover { color: var(--text-secondary); }
+        .th-tab-btn.active { color: var(--accent); }
+        .th-tab-btn.active::after {
+            content: ''; position: absolute; bottom: -1px; left: 0; right: 0;
+            height: 2px; background: var(--accent); border-radius: 2px 2px 0 0;
+            box-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+        }
+        .th-tab-btn .th-tab-count {
+            display: inline-block; background: rgba(0, 212, 255, 0.08); color: var(--accent);
+            font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 3px;
+            margin-left: 6px; font-family: var(--font-mono);
+            border: 1px solid rgba(0, 212, 255, 0.15);
+        }
+        .th-tab-panel { display: none; }
+        .th-tab-panel.active { display: block; }
+
+        .busy-category-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 3px;
+            font-size: 10px; font-weight: 700; font-family: var(--font-mono);
+            letter-spacing: 0.3px; border: 1px solid transparent;
+        }
+        .cat-http { background: rgba(0, 212, 255, 0.06); color: var(--accent); border-color: rgba(0, 212, 255, 0.15); }
+        .cat-io { background: rgba(170, 68, 255, 0.06); color: #aa44ff; border-color: rgba(170, 68, 255, 0.15); }
+        .cat-task { background: rgba(45, 212, 191, 0.06); color: #2dd4bf; border-color: rgba(45, 212, 191, 0.15); }
+        .cat-db { background: rgba(255, 170, 0, 0.06); color: var(--warning); border-color: rgba(255, 170, 0, 0.15); }
+        .cat-jpa { background: rgba(255, 170, 0, 0.06); color: var(--warning); border-color: rgba(255, 170, 0, 0.15); }
+        .cat-ejb { background: rgba(125, 168, 204, 0.06); color: var(--text-secondary); border-color: rgba(125, 168, 204, 0.15); }
+        .cat-tx { background: rgba(255, 34, 68, 0.06); color: var(--critical); border-color: rgba(255, 34, 68, 0.15); }
+        .cat-jms { background: rgba(0, 255, 136, 0.06); color: var(--healthy); border-color: rgba(0, 255, 136, 0.15); }
+        .cat-gc { background: rgba(62, 96, 128, 0.08); color: var(--text-muted); border-color: rgba(62, 96, 128, 0.15); }
+        .cat-deadlock { background: rgba(255, 34, 68, 0.1); color: #ff2244; border-color: rgba(255, 34, 68, 0.25); font-weight: 700; }
+        .cat-other { background: rgba(62, 96, 128, 0.05); color: var(--text-muted); border-color: rgba(62, 96, 128, 0.1); }
+        .busy-cat-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+        .busy-cat-summary:empty { display: none; }
+
+        /* ── AI Analysis Panel ── */
+        .ai-rca-panel {
+            display: none;
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .ai-rca-panel::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 12px;
+            padding: 2px;
+            background: linear-gradient(135deg, #00d4ff, #aa44ff, #00d4ff, #aa44ff);
+            background-size: 300% 300%;
+            animation: aiGradientBorder 4s ease infinite;
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            z-index: 1;
+        }
+        @keyframes aiGradientBorder {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        .ai-rca-inner {
+            background: linear-gradient(135deg, rgba(0,212,255,0.04), rgba(170,68,255,0.04));
+            border-radius: 12px;
+        }
+        .ai-rca-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 24px;
+            border-bottom: 1px solid rgba(0,212,255,0.1);
+        }
+        .ai-rca-header h3 {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0;
+            background: linear-gradient(135deg, #00d4ff, #aa44ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .ai-rca-actions { display: flex; gap: 8px; align-items: center; }
+        .ai-rca-brand { display: flex; align-items: center; gap: 12px; }
+        .ai-rca-logo {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(170,68,255,0.15));
+            border: 1px solid rgba(0,212,255,0.25);
+            animation: aiLogoPulse 3s ease-in-out infinite;
+        }
+        @keyframes aiLogoPulse {
+            0%, 100% { box-shadow: 0 0 14px rgba(0,212,255,0.20); }
+            50%      { box-shadow: 0 0 26px rgba(170,68,255,0.35); }
+        }
+        .ai-rca-titles { display: flex; flex-direction: column; gap: 2px; }
+        .ai-rca-sub {
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.4px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+        .ai-rca-content {
+            padding: 24px;
+            font-size: 14px;
+            line-height: 1.8;
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            min-height: 80px;
+            max-height: 700px;
+            overflow-y: auto;
+        }
+        .ai-rca-content h1, .ai-rca-content h2, .ai-rca-content h3,
+        .ai-rca-content h4, .ai-rca-content h5 {
+            color: var(--text-primary);
+            margin: 20px 0 10px;
+            font-weight: 600;
+        }
+        .ai-rca-content h1 { font-size: 20px; }
+        .ai-rca-content h2 { font-size: 17px; }
+        .ai-rca-content h3 { font-size: 15px; }
+        .ai-rca-content strong {
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .ai-rca-content ul, .ai-rca-content ol {
+            margin: 8px 0;
+            padding-left: 24px;
+        }
+        .ai-rca-content li {
+            margin-bottom: 4px;
+            line-height: 1.7;
+        }
+        /* AI report sections — each ## heading becomes a titled card */
+        .ai-section {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 10px;
+            padding: 14px 18px 16px;
+            margin-bottom: 14px;
+        }
+        .ai-section:last-child { margin-bottom: 0; }
+        .ai-section-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .ai-section-icon {
+            font-size: 18px;
+            line-height: 1;
+            filter: drop-shadow(0 0 6px rgba(0,212,255,0.4));
+        }
+        .ai-section-title {
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            color: var(--text-primary);
+        }
+        .ai-section-body { color: var(--text-primary); }
+        .ai-section-body code, .ai-rca-content code {
+            font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+            background: rgba(0,212,255,0.10);
+            color: #00d4ff;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 12.5px;
+        }
+        /* Resolution — highlighted, actionable card */
+        .ai-resolution {
+            background: linear-gradient(135deg, rgba(52,211,153,0.10), rgba(0,212,255,0.05));
+            border: 1px solid rgba(52,211,153,0.35);
+            border-left: 4px solid #34d399;
+            box-shadow: 0 0 24px rgba(52,211,153,0.10);
+        }
+        .ai-resolution .ai-section-icon {
+            filter: drop-shadow(0 0 6px rgba(52,211,153,0.6));
+        }
+        .ai-resolution .ai-section-title { color: #34d399; }
+        .ai-resolution .ai-section-body code {
+            background: rgba(52,211,153,0.14);
+            color: #34d399;
+        }
+        /* Each per-issue heading (### Issue) inside the Resolution card */
+        .ai-resolution .ai-section-body h3 {
+            color: #34d399;
+            font-size: 14.5px;
+            margin: 16px 0 8px;
+            padding-top: 14px;
+            border-top: 1px dashed rgba(52,211,153,0.25);
+        }
+        .ai-resolution .ai-section-body h3:first-child {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
+        }
+
+        /* ── Shimmer loading ── */
+        .ai-shimmer {
+            position: relative;
+            overflow: hidden;
+        }
+        .ai-shimmer-bar {
+            height: 14px;
+            border-radius: 6px;
+            background: rgba(0,212,255,0.06);
+            margin-bottom: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        .ai-shimmer-bar::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(0,212,255,0.1), transparent);
+            animation: shimmer 1.5s infinite;
+        }
+        .ai-shimmer-bar:nth-child(2) { width: 85%; }
+        .ai-shimmer-bar:nth-child(3) { width: 70%; }
+        .ai-shimmer-bar:nth-child(4) { width: 90%; animation-delay: 0.2s; }
+        .ai-shimmer-bar:nth-child(5) { width: 60%; animation-delay: 0.3s; }
+        .ai-shimmer-bar:nth-child(6) { width: 80%; animation-delay: 0.1s; }
+        @keyframes shimmer {
+            0%   { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        .ai-shimmer-label {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .ai-shimmer-pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 1.5s ease infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.3); }
+        }
+
+        /* ── Button styles ── */
+        .btn-copy {
+            padding: 6px 14px;
+            font-size: 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: var(--font-sans);
+        }
+        .btn-copy:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* ── Tables ── */
+        .rca-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .rca-table thead th {
+            padding: 12px 14px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            background: linear-gradient(180deg, rgba(8,18,35,0.8), rgba(8,18,35,0.4));
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+            white-space: nowrap;
+        }
+        .rca-table thead th.sortable {
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.15s;
+        }
+        .rca-table thead th.sortable:hover { color: var(--accent); }
+        .gc-sort-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .rca-select {
+            background: rgba(8,18,35,0.8);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 5px 28px 5px 10px;
+            font-size: 12px;
+            font-family: var(--font-sans);
+            cursor: pointer;
+            outline: none;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%2388a' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+        }
+        .rca-select:hover, .rca-select:focus { border-color: var(--accent); }
+        .rca-table thead th .sort-arrow {
+            color: var(--accent);
+            font-size: 10px;
+        }
+        .rca-table tbody td {
+            padding: 10px 14px;
+            font-size: 12px;
+            border-bottom: 1px solid rgba(45,63,82,0.3);
+            color: var(--text-secondary);
+        }
+        .rca-table tbody tr {
+            transition: background 0.15s;
+        }
+        .rca-table tbody tr:hover {
+            background: rgba(0,212,255,0.03);
+        }
+
+        /* ── Section sub-headers ── */
+        .rca-section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin: 20px 0 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .rca-section-title::before {
+            content: '';
+            display: block;
+            width: 3px;
+            height: 14px;
+            border-radius: 2px;
+            background: var(--accent);
+        }
+
+        /* ── GC Summary Cards ── */
+        .gc-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+        .gc-stat-card {
+            background: rgba(8, 18, 35, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+        }
+        .gc-stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        .gc-stat-value {
+            font-size: 22px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            color: var(--text-primary);
+        }
+
+        /* ── Upload card ── */
+        .upload-card {
+            background: rgba(8, 18, 35, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .upload-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 24px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .upload-card-header h3 {
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .upload-card-body {
+            padding: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar"></div>
+
+    <div class="main-content">
+        <div id="pageHeader"></div>
+
+        <div class="content">
+
+            <!-- Upload Section -->
+            <div class="upload-card">
+                <div class="upload-card-header">
+                    <h3>&#128269; Upload Log Files</h3>
+                    <span class="badge badge-info" id="uploadBadge">0 files selected</span>
+                </div>
+                <div class="upload-card-body">
+                    <div class="rca-upload-grid">
+                        <div class="rca-dropzone" id="dropThreadDump" onclick="dzClick(event, this)">
+                            <input type="file" onchange="handleFile(this, 'thread_dump')">
+                            <div class="rca-dz-check">&#10003;</div>
+                            <div class="rca-dz-icon">&#9776;</div>
+                            <div class="rca-dz-label">Thread Dump</div>
+                            <div class="rca-dz-hint">.txt, .out, .tdump</div>
+                            <div class="rca-dz-file-info" id="infoThreadDump"></div>
+                        </div>
+                        <div class="rca-dropzone" id="dropServerLog" onclick="dzClick(event, this)">
+                            <input type="file" onchange="handleFile(this, 'server_log')">
+                            <div class="rca-dz-check">&#10003;</div>
+                            <div class="rca-dz-icon">&#9998;</div>
+                            <div class="rca-dz-label">Server Log</div>
+                            <div class="rca-dz-hint">server.log</div>
+                            <div class="rca-dz-file-info" id="infoServerLog"></div>
+                        </div>
+                        <div class="rca-dropzone" id="dropAccessLog" onclick="dzClick(event, this)">
+                            <input type="file" onchange="handleFile(this, 'access_log')">
+                            <div class="rca-dz-check">&#10003;</div>
+                            <div class="rca-dz-icon">&#9729;</div>
+                            <div class="rca-dz-label">Access Log</div>
+                            <div class="rca-dz-hint">access.log</div>
+                            <div class="rca-dz-file-info" id="infoAccessLog"></div>
+                        </div>
+                        <div class="rca-dropzone" id="dropGcLog" onclick="dzClick(event, this)">
+                            <input type="file" onchange="handleFile(this, 'gc_log')">
+                            <div class="rca-dz-check">&#10003;</div>
+                            <div class="rca-dz-icon">&#9618;</div>
+                            <div class="rca-dz-label">GC Log</div>
+                            <div class="rca-dz-hint">gc.log, .txt</div>
+                            <div class="rca-dz-file-info" id="infoGcLog"></div>
+                        </div>
+                        <div class="rca-dropzone" id="dropJdbcSpyLog" onclick="dzClick(event, this)">
+                            <input type="file" onchange="handleFile(this, 'jdbc_spy_log')">
+                            <div class="rca-dz-check">&#10003;</div>
+                            <div class="rca-dz-icon">&#128269;</div>
+                            <div class="rca-dz-label">JDBC Spy Log</div>
+                            <div class="rca-dz-hint">jdbc-spy.log</div>
+                            <div class="rca-dz-file-info" id="infoJdbcSpyLog"></div>
+                        </div>
+                        <div class="rca-dropzone" id="dropTxLog" onclick="dzClick(event, this)">
+                            <input type="file" onchange="handleFile(this, 'tx_log')">
+                            <div class="rca-dz-check">&#10003;</div>
+                            <div class="rca-dz-icon">&#8644;</div>
+                            <div class="rca-dz-label">Transaction Log</div>
+                            <div class="rca-dz-hint">transaction.log</div>
+                            <div class="rca-dz-file-info" id="infoTxLog"></div>
+                        </div>
+                    </div>
+                    <div class="rca-analyze-bar">
+                        <div class="rca-file-count" id="fileCountLabel">Select at least one file to begin analysis</div>
+                        <div style="display:flex;gap:10px;">
+                            <button class="btn" id="btnRemoveAll" onclick="clearAllFiles()" disabled>Remove All Files</button>
+                            <button class="btn btn-primary" id="btnAnalyze" onclick="runAnalysis()" disabled>Analyze</button>
+                            <button class="btn-ai" id="btnAiAnalyze" onclick="runAiAnalysis()" disabled>&#9733; AI Analysis</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Analysis Result -->
+            <div class="ai-rca-panel" id="aiRcaPanel">
+                <div class="ai-rca-inner">
+                    <div class="ai-rca-header">
+                        <div class="ai-rca-brand">
+                            <span class="ai-rca-logo">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 2l2.4 5.6L20 10l-5.6 2.4L12 18l-2.4-5.6L4 10l5.6-2.4L12 2z" fill="url(#aiGrad)"/>
+                                    <circle cx="18.5" cy="5.5" r="1.5" fill="#aa44ff"/>
+                                    <circle cx="5" cy="17" r="1.1" fill="#00d4ff"/>
+                                    <defs>
+                                        <linearGradient id="aiGrad" x1="4" y1="2" x2="20" y2="18" gradientUnits="userSpaceOnUse">
+                                            <stop stop-color="#00d4ff"/><stop offset="1" stop-color="#aa44ff"/>
+                                        </linearGradient>
+                                    </defs>
+                                </svg>
+                            </span>
+                            <div class="ai-rca-titles">
+                                <h3>AI Root Cause Analysis</h3>
+                                <span class="ai-rca-sub">Powered by Claude</span>
+                            </div>
+                        </div>
+                        <div class="ai-rca-actions">
+                            <button class="btn-copy" id="btnCopyAi" onclick="copyAiResult()" style="display:none;">Copy</button>
+                        </div>
+                    </div>
+                    <div class="ai-rca-content" id="aiRcaContent">
+                        <div class="rca-empty-state">
+                            <div class="rca-empty-icon">&#9733;</div>
+                            <div class="rca-empty-text">Click "AI Analysis" to get an AI-powered root cause analysis report.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results -->
+            <div id="rcaResults">
+
+                <!-- Summary Cards -->
+                <div class="rca-summary-grid" id="rcaSummaryCards">
+                    <div class="rca-stat-card stat-blue">
+                        <div class="rca-stat-label">Files Analyzed</div>
+                        <div class="rca-stat-value" id="sumFiles">--</div>
+                        <div class="rca-stat-sub">uploaded sources</div>
+                    </div>
+                    <div class="rca-stat-card stat-orange">
+                        <div class="rca-stat-label">Slow APIs</div>
+                        <div class="rca-stat-value" id="sumSlowApis">--</div>
+                        <div class="rca-stat-sub">response &gt; 1s</div>
+                    </div>
+                    <div class="rca-stat-card stat-red">
+                        <div class="rca-stat-label">Blocked Threads</div>
+                        <div class="rca-stat-value" id="sumBlocked">--</div>
+                        <div class="rca-stat-sub">in thread dump</div>
+                    </div>
+                    <div class="rca-stat-card stat-purple">
+                        <div class="rca-stat-label">GC Pauses</div>
+                        <div class="rca-stat-value" id="sumGcPauses">--</div>
+                        <div class="rca-stat-sub" id="sumGcTime">--</div>
+                    </div>
+                    <div class="rca-stat-card stat-red">
+                        <div class="rca-stat-label">Server Errors</div>
+                        <div class="rca-stat-value" id="sumErrors">--</div>
+                        <div class="rca-stat-sub">ERROR / FATAL</div>
+                    </div>
+                    <div class="rca-stat-card stat-blue">
+                        <div class="rca-stat-label">JDBC Queries</div>
+                        <div class="rca-stat-value" id="sumSpyQueries">--</div>
+                        <div class="rca-stat-sub">from spy log</div>
+                    </div>
+                    <div class="rca-stat-card stat-purple">
+                        <div class="rca-stat-label">Transactions</div>
+                        <div class="rca-stat-value" id="sumTransactions">--</div>
+                        <div class="rca-stat-sub">from tx log</div>
+                    </div>
+                    <div class="rca-stat-card stat-green">
+                        <div class="rca-stat-label">Findings</div>
+                        <div class="rca-stat-value" id="sumFindings">--</div>
+                        <div class="rca-stat-sub">root cause clues</div>
+                    </div>
+                </div>
+
+                <!-- Findings -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Findings</h3>
+                        <span class="badge badge-info" id="findingsCountBadge">0</span>
+                    </div>
+                    <div class="card-body" id="findingsBody">
+                        <div class="rca-empty-state">
+                            <div class="rca-empty-icon">&#128270;</div>
+                            <div class="rca-empty-text">No findings yet. Upload logs and run analysis to discover root cause clues.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Slow APIs -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Slow APIs</h3>
+                        <span class="badge badge-info" id="slowApiCountBadge">0</span>
+                    </div>
+                    <div class="card-body no-padding">
+                        <div style="overflow-x:auto;">
+                            <table class="rca-table" id="slowApiTable">
+                                <thead>
+                                    <tr>
+                                        <th class="sortable" onclick="sortSlowApis('endpoint')">Endpoint <span class="sort-arrow" data-key="endpoint"></span></th>
+                                        <th class="sortable" onclick="sortSlowApis('hit_count')">Hits <span class="sort-arrow" data-key="hit_count"></span></th>
+                                        <th class="sortable" onclick="sortSlowApis('avg_time_ms')">Avg Time <span class="sort-arrow" data-key="avg_time_ms"></span></th>
+                                        <th class="sortable" onclick="sortSlowApis('max_time_ms')">Max Time <span class="sort-arrow" data-key="max_time_ms"></span></th>
+                                        <th>Status Codes</th>
+                                        <th class="sortable" onclick="sortSlowApis('last_hit_ms')">Last Hit <span class="sort-arrow" data-key="last_hit_ms"></span></th>
+                                        <th>Thread(s) — from dump</th>
+                                        <th class="sortable" onclick="sortSlowApis('error_count')">Errors <span class="sort-arrow" data-key="error_count"></span></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="slowApiBody">
+                                    <tr><td colspan="8" class="rca-empty-state">No slow API data.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Thread Analysis -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Thread Analysis</h3>
+                        <span class="badge badge-info" id="threadCountBadge">0 threads</span>
+                    </div>
+                    <div class="card-body">
+                        <!-- Provenance: proves this is the uploaded dump snapshot, not live threads -->
+                        <div id="threadDumpProvenance" style="display:none;padding:10px 14px;background:rgba(88,166,255,0.08);border:1px solid rgba(88,166,255,0.25);border-radius:8px;margin-bottom:16px;font-size:12px;color:var(--text-secondary);align-items:center;gap:8px;">
+                            <span style="font-size:14px;">&#128193;</span>
+                            <span id="threadDumpProvenanceText"></span>
+                        </div>
+                        <!-- Deadlock Warning -->
+                        <div id="deadlockWarning" style="display:none;padding:14px 20px;background:rgba(255,34,68,0.08);border:1px solid rgba(255,34,68,0.25);border-radius:10px;margin-bottom:20px;">
+                            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                                <span style="font-size:18px;">&#9888;</span>
+                                <span style="font-size:14px;font-weight:700;color:var(--critical);">Deadlock Detected</span>
+                            </div>
+                            <div id="deadlockDetails" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-mono);line-height:1.6;"></div>
+                        </div>
+
+                        <!-- Thread Overview -->
+                        <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+                            <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);">
+                                <span style="font-family:var(--font-mono);font-weight:600;color:var(--text-primary);" id="threadDaemonCount">--</span> daemon
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);">
+                                <span style="font-family:var(--font-mono);font-weight:600;color:var(--text-primary);" id="threadNonDaemonCount">--</span> non-daemon
+                            </div>
+                        </div>
+
+                        <!-- State Distribution Bar (replaces the live history chart) -->
+                        <div id="threadStateBar" style="display:none;margin-bottom:20px;">
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">State Distribution</div>
+                            <div id="threadStateBarInner" style="display:flex;height:28px;border-radius:8px;overflow:hidden;border:1px solid var(--border-color);"></div>
+                            <div id="threadStateBarLegend" style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;"></div>
+                        </div>
+
+                        <!-- State Pills -->
+                        <div class="state-pills-row" id="threadStatePills" style="margin-bottom:4px;"></div>
+
+                        <!-- Tab Bar -->
+                        <div class="th-tab-bar">
+                            <button class="th-tab-btn active" onclick="switchRcaThreadTab('allThreads', this)">All Threads <span class="th-tab-count" id="rcaAllThreadsCount">0</span></button>
+                            <button class="th-tab-btn" onclick="switchRcaThreadTab('longRunning', this)">Long Running <span class="th-tab-count" id="rcaLongRunningCount">0</span></button>
+                            <button class="th-tab-btn" onclick="switchRcaThreadTab('deadlocks', this)">Deadlocks <span class="th-tab-count" id="rcaDeadlockCount" style="background:rgba(255,34,68,0.12);color:var(--critical);border-color:rgba(255,34,68,0.2);">0</span></button>
+                            <button class="th-tab-btn" onclick="switchRcaThreadTab('blocked', this)">Blocked Events <span class="th-tab-count" id="rcaBlockedCount">0</span></button>
+                        </div>
+
+                        <!-- All Threads Tab -->
+                        <div class="th-tab-panel active" id="rcaTabAllThreads">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+                                <select id="historyStateFilter" style="padding:5px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;font-family:var(--font-mono);" onchange="filterAllThreads()">
+                                    <option value="">All States</option>
+                                    <option value="RUNNABLE">RUNNABLE</option>
+                                    <option value="BLOCKED">BLOCKED</option>
+                                    <option value="WAITING">WAITING</option>
+                                    <option value="TIMED_WAITING">TIMED_WAITING</option>
+                                </select>
+                                <select id="historyCatFilter" style="padding:5px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;font-family:var(--font-mono);" onchange="filterAllThreads()">
+                                    <option value="">All Categories</option>
+                                </select>
+                                <input type="text" id="threadSearchInput" placeholder="Search thread name..." style="padding:5px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;width:180px;font-family:var(--font-mono);" oninput="filterAllThreads()">
+                                <span class="badge badge-info" id="allThreadsCountBadge">0</span>
+                            </div>
+                            <div class="busy-cat-summary" id="rcaTrackedCatSummary"></div>
+                            <div id="allThreadsBody" style="max-height:520px;overflow-y:auto;">
+                                <div class="rca-empty-state">No thread data. Upload a thread dump and run Analyze.</div>
+                            </div>
+                        </div>
+
+                        <!-- Long Running Tab -->
+                        <div class="th-tab-panel" id="rcaTabLongRunning">
+                            <div id="longRunningBody" style="max-height:480px;overflow-y:auto;">
+                                <div class="rca-empty-state">No long running threads detected. Threads with CPU &gt; 1s or RUNNABLE with high CPU appear here.</div>
+                            </div>
+                        </div>
+
+                        <!-- Deadlocks Tab -->
+                        <div class="th-tab-panel" id="rcaTabDeadlocks">
+                            <div id="rcaDeadlockBody" style="max-height:320px;overflow-y:auto;margin-bottom:16px;">
+                                <div class="rca-empty-state">No deadlocks detected in the uploaded thread dump.</div>
+                            </div>
+                            <div>
+                                <h4 style="font-size:13px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin:0 0 10px;">Lock Contention Groups <span class="th-tab-count" id="rcaContentionCount">0</span></h4>
+                                <div id="contentionBody">
+                                    <div class="rca-empty-state"><div class="rca-empty-icon">&#128274;</div><div class="rca-empty-text">No lock contention groups detected.</div></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Blocked Events Tab -->
+                        <div class="th-tab-panel" id="rcaTabBlocked">
+                            <div id="blockedBody" style="max-height:480px;overflow-y:auto;">
+                                <div class="rca-empty-state">No blocked threads found.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Correlation -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Error Correlation</h3>
+                        <span class="badge badge-info" id="errorCorrelationBadge">0</span>
+                    </div>
+                    <div class="card-body no-padding">
+                        <div style="overflow-x:auto;">
+                            <table class="rca-table" id="errorCorrelationTable">
+                                <thead>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <th>Level</th>
+                                        <th>Thread</th>
+                                        <th>Message</th>
+                                        <th>Related API</th>
+                                        <th>Response Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="errorCorrelationBody">
+                                    <tr><td colspan="6" class="rca-empty-state">No correlated errors.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GC Analysis -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>GC Analysis</h3>
+                        <div class="gc-sort-control">
+                            <label for="gcSortSelect">Sort by</label>
+                            <select id="gcSortSelect" class="rca-select" onchange="setGcSort(this.value)">
+                                <option value="duration">Duration (longest first)</option>
+                                <option value="timestamp">Timestamp (newest first)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="gc-summary-grid" id="gcSummaryCards">
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Total Pauses</div>
+                                <div class="gc-stat-value" id="gcTotalPauses">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Max Pause</div>
+                                <div class="gc-stat-value" id="gcMaxPause">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Avg Pause</div>
+                                <div class="gc-stat-value" id="gcAvgPause">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Total Pause Time</div>
+                                <div class="gc-stat-value" id="gcTotalTime">--</div>
+                            </div>
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table class="rca-table" id="gcTable">
+                                <thead>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <th>Type</th>
+                                        <th>Duration</th>
+                                        <th>Heap Before &rarr; After</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="gcBody">
+                                    <tr><td colspan="4" class="rca-empty-state">No GC data.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- JDBC Spy Analysis -->
+                <div class="card" id="jdbcSpyCard" style="display:none;">
+                    <div class="card-header">
+                        <h3>JDBC Spy Analysis</h3>
+                        <span class="badge badge-info" id="spyQueryCountBadge">0 queries</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="gc-summary-grid" id="spySummaryCards">
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Total Queries</div>
+                                <div class="gc-stat-value" id="spyTotalQueries">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Slow Queries</div>
+                                <div class="gc-stat-value" id="spySlowCount">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Avg Exec Time</div>
+                                <div class="gc-stat-value" id="spyAvgExec">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Max Exec Time</div>
+                                <div class="gc-stat-value" id="spyMaxExec">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Inflight</div>
+                                <div class="gc-stat-value" id="spyInflightCount">--</div>
+                            </div>
+                        </div>
+                        <!-- Queries by Datasource -->
+                        <div class="rca-section-title">Queries by Datasource</div>
+                        <div id="spyByDatasource" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;"></div>
+                        <!-- Top SQL -->
+                        <div class="rca-section-title">Most Frequent SQL</div>
+                        <div style="overflow-x:auto;">
+                            <table class="rca-table">
+                                <thead><tr><th>SQL</th><th>Count</th></tr></thead>
+                                <tbody id="spyTopSqlBody">
+                                    <tr><td colspan="2" class="rca-empty-state">No data.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <!-- Slow Queries -->
+                        <div class="rca-section-title">Slow Queries (&gt;100ms)</div>
+                        <div style="overflow-x:auto;">
+                            <table class="rca-table">
+                                <thead>
+                                    <tr>
+                                        <th>SQL</th>
+                                        <th>Datasource</th>
+                                        <th>Thread</th>
+                                        <th>Max Exec Time</th>
+                                        <th>Count</th>
+                                        <th>Type</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="spySlowBody">
+                                    <tr><td colspan="6" class="rca-empty-state">No slow queries.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transaction Analysis -->
+                <div class="card" id="txAnalysisCard" style="display:none;">
+                    <div class="card-header">
+                        <h3>Transaction Analysis</h3>
+                        <span class="badge badge-info" id="txCountBadge">0 transactions</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="gc-summary-grid" id="txSummaryCards">
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Total</div>
+                                <div class="gc-stat-value" id="txTotal">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Committed</div>
+                                <div class="gc-stat-value" id="txCommitted" style="color:var(--healthy);">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Aborted</div>
+                                <div class="gc-stat-value" id="txAborted" style="color:var(--critical);">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Inflight</div>
+                                <div class="gc-stat-value" id="txInflight" style="color:var(--warning);">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Abort Rate</div>
+                                <div class="gc-stat-value" id="txAbortRate">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Avg Duration</div>
+                                <div class="gc-stat-value" id="txAvgDuration">--</div>
+                            </div>
+                            <div class="gc-stat-card">
+                                <div class="gc-stat-label">Max Duration</div>
+                                <div class="gc-stat-value" id="txMaxDuration">--</div>
+                            </div>
+                        </div>
+                        <!-- Slow Transactions -->
+                        <div class="rca-section-title">Slow Transactions (&gt;1s)</div>
+                        <div style="overflow-x:auto;">
+                            <table class="rca-table">
+                                <thead>
+                                    <tr>
+                                        <th>TX ID</th>
+                                        <th>Thread</th>
+                                        <th>Outcome</th>
+                                        <th>Duration</th>
+                                        <th>Queries</th>
+                                        <th>Begin Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="txSlowBody">
+                                    <tr><td colspan="6" class="rca-empty-state">No slow transactions.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <!-- All Transactions -->
+                        <div class="rca-section-title">All Transactions <span id="txAllCountBadge" style="font-size:11px;font-weight:400;color:var(--text-muted);margin-left:6px;"></span></div>
+                        <div style="overflow-x:auto;">
+                            <table class="rca-table">
+                                <thead>
+                                    <tr>
+                                        <th>TX ID</th>
+                                        <th>Thread</th>
+                                        <th>Outcome</th>
+                                        <th>Duration</th>
+                                        <th>Queries</th>
+                                        <th>Begin Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="txAllBody">
+                                    <tr><td colspan="6" class="rca-empty-state">No transaction data.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Timeline -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Event Timeline</h3>
+                        <span class="badge badge-info" id="timelineBadge">0 events</span>
+                    </div>
+                    <div class="card-body" style="max-height:500px;overflow-y:auto;">
+                        <div id="timelineBody">
+                            <div class="rca-empty-state">
+                                <div class="rca-empty-icon">&#9201;</div>
+                                <div class="rca-empty-text">No timeline events to display.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /rcaResults -->
+
+            <!-- RCA Thread Stack Trace Modal -->
+            <div class="rca-modal-overlay" id="rcaThreadModal" onclick="if(event.target===this)closeRcaThreadModal()">
+                <div class="rca-modal-box">
+                    <div class="rca-modal-header">
+                        <h3 id="rcaThreadModalTitle">Thread Stack Trace</h3>
+                        <button class="rca-modal-close" onclick="closeRcaThreadModal()">&times;</button>
+                    </div>
+                    <div class="rca-modal-body" id="rcaThreadModalBody">
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+        document.getElementById('sidebar').innerHTML = renderSidebar();
+        document.getElementById('pageHeader').innerHTML = renderPageHeader('Root Cause Analysis', 'Upload logs to correlate thread dumps, server logs, access logs, and GC data');
+        setActiveNav();
+
+        // -- File handling --
+        var rcaFiles = { thread_dump: null, server_log: null, access_log: null, gc_log: null, jdbc_spy_log: null, tx_log: null };
+        var rcaFileMeta = {}; // key -> { name, size }
+        var rcaThreadStacks = {};
+        // Slots the user has uploaded/removed this session. The async IndexedDB restore
+        // must never overwrite these, or a fresh upload can be silently reverted to the
+        // previously-saved file (→ stale "old" stacktraces). See restoreFilesFromStorage.
+        var rcaTouched = {};
+
+        var dropzoneMap = {
+            thread_dump:   { drop: 'dropThreadDump',   info: 'infoThreadDump' },
+            server_log:    { drop: 'dropServerLog',    info: 'infoServerLog' },
+            access_log:    { drop: 'dropAccessLog',    info: 'infoAccessLog' },
+            gc_log:        { drop: 'dropGcLog',        info: 'infoGcLog' },
+            jdbc_spy_log:  { drop: 'dropJdbcSpyLog',   info: 'infoJdbcSpyLog' },
+            tx_log:        { drop: 'dropTxLog',        info: 'infoTxLog' }
+        };
+
+        // -- IndexedDB persistence (handles large files; no ~5MB localStorage cap) --
+        var RCA_DB_NAME = 'rca_files_db';
+        var RCA_STORE = 'files';
+
+        function openRcaDb() {
+            return new Promise(function(resolve, reject) {
+                var req = indexedDB.open(RCA_DB_NAME, 1);
+                req.onupgradeneeded = function(e) {
+                    var db = e.target.result;
+                    if (!db.objectStoreNames.contains(RCA_STORE)) {
+                        db.createObjectStore(RCA_STORE); // keyed by file slot (e.g. 'thread_dump')
+                    }
+                };
+                req.onsuccess = function(e) { resolve(e.target.result); };
+                req.onerror = function() { reject(req.error); };
+            });
+        }
+
+        // Persist a single attached file (per-file record — a large file never blocks others)
+        function persistFile(key) {
+            openRcaDb().then(function(db) {
+                var tx = db.transaction(RCA_STORE, 'readwrite');
+                tx.objectStore(RCA_STORE).put({ content: rcaFiles[key], meta: rcaFileMeta[key] }, key);
+                tx.oncomplete = function() { db.close(); };
+                tx.onerror = function() {
+                    db.close();
+                    if (typeof showToast === 'function') showToast('Could not persist ' + key + ' across refresh', 'warning');
+                };
+            }).catch(function() {
+                if (typeof showToast === 'function') showToast('Persistent storage unavailable (files kept in memory)', 'warning');
+            });
+        }
+
+        function removePersistedFile(key) {
+            openRcaDb().then(function(db) {
+                var tx = db.transaction(RCA_STORE, 'readwrite');
+                tx.objectStore(RCA_STORE).delete(key);
+                tx.oncomplete = function() { db.close(); };
+            }).catch(function() {});
+        }
+
+        function clearPersistedFiles() {
+            openRcaDb().then(function(db) {
+                var tx = db.transaction(RCA_STORE, 'readwrite');
+                tx.objectStore(RCA_STORE).clear();
+                tx.oncomplete = function() { db.close(); };
+            }).catch(function() {});
+        }
+
+        function restoreFilesFromStorage() {
+            openRcaDb().then(function(db) {
+                var store = db.transaction(RCA_STORE, 'readonly').objectStore(RCA_STORE);
+                var req = store.openCursor();
+                req.onsuccess = function(e) {
+                    var cursor = e.target.result;
+                    if (cursor) {
+                        var key = cursor.key;
+                        var entry = cursor.value;
+                        // Skip slots the user already uploaded/removed this session — restoring
+                        // here would revert a fresh upload to the stale saved file (race fix).
+                        if (dropzoneMap[key] && !rcaTouched[key] && entry && entry.content != null) {
+                            rcaFiles[key] = entry.content;
+                            rcaFileMeta[key] = entry.meta || { name: key, size: entry.content.length };
+                            renderFileInfo(key);
+                        }
+                        cursor.continue();
+                    } else {
+                        updateFileCount();
+                        db.close();
+                    }
+                };
+                req.onerror = function() { db.close(); };
+            }).catch(function() {});
+        }
+
+        // Open the file picker only when the dropzone body (not the Remove button) is clicked
+        function dzClick(event, dz) {
+            if (event && event.target && event.target.closest('.rca-dz-clear')) return;
+            dz.querySelector('input').click();
+        }
+
+        // Wire up drag-and-drop
+        Object.keys(dropzoneMap).forEach(function(key) {
+            var dz = document.getElementById(dropzoneMap[key].drop);
+            dz.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.classList.add('dragover');
+            });
+            dz.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.classList.remove('dragover');
+            });
+            dz.addEventListener('drop', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.classList.remove('dragover');
+                if (e.dataTransfer.files.length > 0) {
+                    readFileContent(e.dataTransfer.files[0], key);
+                }
+            });
+        });
+
+        function handleFile(input, key) {
+            if (input.files.length > 0) {
+                readFileContent(input.files[0], key);
+            }
+        }
+
+        function readFileContent(file, key) {
+            var infoEl = document.getElementById(dropzoneMap[key].info);
+            infoEl.innerHTML = '<span style="color:var(--text-muted);">Reading...</span>';
+
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                rcaTouched[key] = true; // user-provided this slot — restore must not clobber it
+                rcaFiles[key] = e.target.result;
+                rcaFileMeta[key] = { name: file.name, size: file.size };
+                renderFileInfo(key);
+                updateFileCount();
+                persistFile(key);
+            };
+            reader.onerror = function() {
+                infoEl.innerHTML = '<span style="color:var(--critical);">Failed to read file</span>';
+            };
+            reader.readAsText(file);
+        }
+
+        // Render the "name / size / Remove" block for a dropzone from current state
+        function renderFileInfo(key) {
+            var infoEl = document.getElementById(dropzoneMap[key].info);
+            var dzEl = document.getElementById(dropzoneMap[key].drop);
+            if (rcaFiles[key] === null) {
+                dzEl.classList.remove('has-file');
+                infoEl.innerHTML = '';
+                return;
+            }
+            var meta = rcaFileMeta[key] || { name: key, size: rcaFiles[key].length };
+            dzEl.classList.add('has-file');
+            infoEl.innerHTML = escapeHtml(meta.name) + '<br><span style="color:var(--text-muted);">' + formatBytes(meta.size) + '</span>'
+                + '<br><button type="button" class="rca-dz-clear" onclick="clearFile(\'' + key + '\', event)">Remove</button>';
+        }
+
+        function clearFile(key, event) {
+            if (event) { event.stopPropagation(); event.preventDefault(); }
+            rcaTouched[key] = true; // user cleared this slot — restore must not re-add it
+            rcaFiles[key] = null;
+            delete rcaFileMeta[key];
+            var dzEl = document.getElementById(dropzoneMap[key].drop);
+            dzEl.classList.remove('has-file');
+            document.getElementById(dropzoneMap[key].info).innerHTML = '';
+            dzEl.querySelector('input').value = '';
+            updateFileCount();
+            removePersistedFile(key);
+        }
+
+        function clearAllFiles() {
+            Object.keys(dropzoneMap).forEach(function(key) {
+                rcaFiles[key] = null;
+                delete rcaFileMeta[key];
+                var dzEl = document.getElementById(dropzoneMap[key].drop);
+                dzEl.classList.remove('has-file');
+                document.getElementById(dropzoneMap[key].info).innerHTML = '';
+                dzEl.querySelector('input').value = '';
+            });
+            clearPersistedFiles();
+            updateFileCount();
+            if (typeof showToast === 'function') showToast('All files removed', 'success');
+        }
+
+        function updateFileCount() {
+            var count = Object.values(rcaFiles).filter(function(v) { return v !== null; }).length;
+            document.getElementById('uploadBadge').textContent = count + ' file' + (count !== 1 ? 's' : '') + ' selected';
+            document.getElementById('btnAnalyze').disabled = (count === 0);
+            document.getElementById('btnAiAnalyze').disabled = (count === 0);
+            document.getElementById('btnRemoveAll').disabled = (count === 0);
+            document.getElementById('fileCountLabel').textContent = count > 0
+                ? count + ' file' + (count !== 1 ? 's' : '') + ' ready for analysis'
+                : 'Select at least one file to begin analysis';
+        }
+
+        // Restore any previously-attached files on page load
+        restoreFilesFromStorage();
+
+        // Icon for each known AI-report section, matched on the lowercased heading text.
+        var AI_SECTION_ICONS = {
+            'executive summary': '📜',  // scroll
+            'critical findings': '🚨',  // rotating light
+            'thread analysis':   '🧵',  // thread
+            'api performance':   '⚡',        // high voltage
+            'gc & memory impact':'💾',  // floppy disk
+            'error patterns':    '🔴',  // red circle
+            'root cause chain':  '🔗',  // link
+            'recommendations':   '💡',  // light bulb
+            'resolution':        '🔧'   // wrench
+        };
+
+        // -- Markdown renderer for AI text: splits ## sections into styled cards --
+        function renderAiText(text) {
+            if (!text) return '';
+            text = text.replace(/\r\n/g, '\n');
+            // Split at level-2 headings: parts = [preamble, title, body, title, body, ...]
+            var parts = text.split(/^##\s+(.+)$/m);
+            var out = '';
+            if (parts[0] && parts[0].trim()) {
+                out += '<div class="ai-section">' + renderAiBody(parts[0]) + '</div>';
+            }
+            for (var i = 1; i < parts.length; i += 2) {
+                var title = (parts[i] || '').trim();
+                var body = parts[i + 1] || '';
+                var key = title.toLowerCase();
+                var icon = AI_SECTION_ICONS[key] || '◆'; // black diamond fallback
+                var isResolution = key.indexOf('resolution') !== -1;
+                out += '<div class="ai-section' + (isResolution ? ' ai-resolution' : '') + '">'
+                     + '<div class="ai-section-head">'
+                     + '<span class="ai-section-icon">' + icon + '</span>'
+                     + '<span class="ai-section-title">' + escapeHtml(title) + '</span>'
+                     + '</div>'
+                     + '<div class="ai-section-body">' + renderAiBody(body) + '</div>'
+                     + '</div>';
+            }
+            return out || renderAiBody(text);
+        }
+
+        // Renders the inline markdown inside a single section (headings, bold, code, lists).
+        function renderAiBody(text) {
+            var html = escapeHtml(text);
+            html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
+            html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            // Bullet and numbered list items
+            html = html.replace(/^\s*(?:[\-\*]|\d+\.)\s+(.+)$/gm, '<li>$1</li>');
+            // Group consecutive <li> lines into a single <ul>
+            html = html.replace(/(?:<li>.*?<\/li>\n?)+/g, function(m) {
+                return '<ul>' + m.replace(/\n/g, '') + '</ul>';
+            });
+            // Paragraph and line breaks
+            html = html.replace(/\n{2,}/g, '<br><br>');
+            html = html.replace(/\n/g, '<br>');
+            // Trim stray breaks around block elements
+            html = html.replace(/<br>\s*(<(?:ul|h3|h4)>)/g, '$1');
+            html = html.replace(/(<\/(?:ul|h3|h4)>)\s*<br>/g, '$1');
+            return html.trim();
+        }
+
+        // -- Analysis --
+        // Snapshots found in a multi-dump file, and which one is currently shown.
+        var rcaDumps = [];
+        var rcaSelectedDump = 0;
+
+        // Re-run the analysis for a specific snapshot (from the dump picker).
+        function selectRcaDump(index) {
+            runAnalysis(parseInt(index, 10));
+        }
+
+        async function runAnalysis(dumpIndex) {
+            var btn = document.getElementById('btnAnalyze');
+            btn.disabled = true;
+            btn.textContent = 'Analyzing...';
+
+            var payload = {};
+            if (rcaFiles.thread_dump) payload.thread_dump = rcaFiles.thread_dump;
+            if (rcaFiles.server_log) payload.server_log = rcaFiles.server_log;
+            if (rcaFiles.access_log) payload.access_log = rcaFiles.access_log;
+            if (rcaFiles.gc_log) payload.gc_log = rcaFiles.gc_log;
+            if (rcaFiles.jdbc_spy_log) payload.jdbc_spy_log = rcaFiles.jdbc_spy_log;
+            if (rcaFiles.tx_log) payload.tx_log = rcaFiles.tx_log;
+            if (typeof dumpIndex === 'number' && !isNaN(dumpIndex)) payload.dump_index = dumpIndex;
+
+            try {
+                var resp = await fetch(MCP_API + '/rca/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status + ': ' + resp.statusText);
+                var data = await resp.json();
+
+                if (data.error) {
+                    showToast('Analysis failed: ' + data.error, 'error');
+                    return;
+                }
+
+                renderResults(data);
+                document.getElementById('rcaResults').style.display = 'block';
+                showToast('Analysis complete: ' + (data.findings || []).length + ' findings', 'success');
+            } catch (err) {
+                showToast('Analysis failed: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Analyze';
+                updateFileCount();
+            }
+        }
+
+        // -- Render results --
+        function renderResults(data) {
+            var summary = data.summary || {};
+            var fa = summary.files_analyzed;
+            document.getElementById('sumFiles').textContent = Array.isArray(fa) ? fa.length : formatNumber(fa || 0);
+            document.getElementById('sumSlowApis').textContent = formatNumber(summary.slow_requests || 0);
+            document.getElementById('sumBlocked').textContent = formatNumber(summary.blocked_threads || 0);
+            document.getElementById('sumGcPauses').textContent = formatNumber(summary.gc_pauses || 0);
+            document.getElementById('sumGcTime').textContent = summary.total_gc_pause_ms != null ? formatMs(summary.total_gc_pause_ms) + ' total' : '--';
+            document.getElementById('sumErrors').textContent = formatNumber(summary.server_errors || 0);
+            document.getElementById('sumFindings').textContent = formatNumber(summary.findings_count || 0);
+
+            document.getElementById('sumSpyQueries').textContent = formatNumber(summary.total_spy_queries || 0);
+            document.getElementById('sumTransactions').textContent = formatNumber(summary.total_transactions || 0);
+
+            rcaThreadStacks = data.thread_stacks || {};
+            rcaDumps = data.dumps || [];
+            rcaSelectedDump = (typeof data.selected_dump_index === 'number') ? data.selected_dump_index : 0;
+            renderFindings(data.findings || []);
+            renderSlowApis(data.slow_apis || [], data.summary || {});
+            var ta = data.thread_analysis || {};
+            renderThreadAnalysis(ta);
+            renderLongRunningThreads(ta.long_running_threads || []);
+            renderAllThreads(ta.all_threads || []);
+            renderErrorCorrelation(data.error_correlation || []);
+            renderGcAnalysis(data.gc_analysis || {});
+            renderJdbcSpyAnalysis(data.jdbc_spy_analysis || {});
+            renderTxAnalysis(data.tx_analysis || {});
+            renderTimeline(data.timeline || []);
+        }
+
+        // -- Findings --
+        // Show at most this many findings up front (most critical first, already sorted by the
+        // backend); the rest are revealed with the Show More / Show Less toggle.
+        var FINDINGS_LIMIT = 5;
+        var FINDING_SEV_RANK = { CRITICAL: 0, WARNING: 1, INFO: 2 };
+
+        function renderFindingCard(f) {
+            var evidenceHtml = '';
+            if (f.evidence && f.evidence.length > 0) {
+                evidenceHtml = '<ul class="rca-evidence-list">' + f.evidence.map(function(ev) {
+                    return '<li><span class="rca-evidence-src">' + escapeHtml(ev.source || '') + '</span> ' + escapeHtml(ev.detail || '') + '</li>';
+                }).join('') + '</ul>';
+            }
+            var recHtml = f.recommendation ? '<div class="rca-recommendation">' + escapeHtml(f.recommendation) + '</div>' : '';
+            var timeHtml = formatFindingTime(f.time_range);
+            var suspectHtml = f.prime_suspect
+                ? '<div class="rca-suspect"><span class="rca-suspect-label">Prime suspect</span> ' + escapeHtml(f.prime_suspect) + '</div>'
+                : '';
+            var traceHtml = f.trace ? renderTraceChain(f.trace) : '';
+            return '<div class="rca-finding severity-' + escapeHtml(f.severity || 'INFO') + '">'
+                + '<div class="rca-finding-header">'
+                + '<span class="rca-sev-badge ' + escapeHtml(f.severity || 'INFO') + '">' + escapeHtml(f.severity || 'INFO') + '</span>'
+                + '<span class="rca-cat-badge">' + escapeHtml(f.category || '') + '</span>'
+                + '<span class="rca-finding-title">' + escapeHtml(f.title || '') + '</span>'
+                + (f.occurrences && f.occurrences > 1 ? '<span class="rca-occ-badge" title="This issue occurred ' + f.occurrences + ' times">&times;' + f.occurrences + '</span>' : '')
+                + timeHtml
+                + '</div>'
+                + '<div class="rca-finding-desc">' + escapeHtml(f.description || '') + '</div>'
+                + suspectHtml
+                + traceHtml
+                + evidenceHtml + recHtml
+                + '</div>';
+        }
+
+        function renderFindings(findings) {
+            document.getElementById('findingsCountBadge').textContent = findings.length;
+            var el = document.getElementById('findingsBody');
+            if (findings.length === 0) {
+                el.innerHTML = '<div class="rca-empty-state"><div class="rca-empty-icon">&#9989;</div><div class="rca-empty-text">No findings. The uploaded logs appear healthy.</div></div>';
+                return;
+            }
+            // Most critical first (backend already sorts; re-sort defensively and stably).
+            var sorted = findings.slice().sort(function(a, b) {
+                var ra = FINDING_SEV_RANK[a.severity]; if (ra === undefined) ra = 3;
+                var rb = FINDING_SEV_RANK[b.severity]; if (rb === undefined) rb = 3;
+                return ra - rb;
+            });
+            var cards = sorted.map(renderFindingCard);
+            var html = cards.slice(0, FINDINGS_LIMIT).join('');
+            if (cards.length > FINDINGS_LIMIT) {
+                var extra = cards.length - FINDINGS_LIMIT;
+                html += '<div id="findingsExtra" style="display:none;">' + cards.slice(FINDINGS_LIMIT).join('') + '</div>'
+                    + '<button type="button" id="findingsToggle" class="rca-findings-toggle" onclick="toggleFindings()">'
+                    + 'Show ' + extra + ' more &#9662;</button>';
+            }
+            el.innerHTML = html;
+        }
+
+        function toggleFindings() {
+            var extra = document.getElementById('findingsExtra');
+            var btn = document.getElementById('findingsToggle');
+            if (!extra || !btn) return;
+            var expanding = extra.style.display === 'none';
+            extra.style.display = expanding ? '' : 'none';
+            if (expanding) {
+                btn.innerHTML = 'Show less &#9652;';
+            } else {
+                btn.innerHTML = 'Show ' + extra.children.length + ' more &#9662;';
+                btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        // Render the end-to-end correlation chain for a "Correlated Request Trace" finding:
+        // access log → JDBC queries → transactions → server-log errors → GC → thread stack.
+        function renderTraceChain(t) {
+            if (!t) return '';
+            var steps = [];
+            var r = t.request || {};
+
+            // Step 1: the HTTP request (access log)
+            steps.push(traceStep('access_log', 'HTTP Request',
+                escapeHtml((r.method || '') + ' ' + (r.uri || '')) + ' &rarr; <strong>' + escapeHtml(String(r.status)) + '</strong>'
+                + ' in <strong>' + escapeHtml(String(r.response_time_ms)) + 'ms</strong>'
+                + '<div class="rca-trace-sub">thread <span class="mono">' + escapeHtml(r.thread || '') + '</span>'
+                + (r.time_local ? ' &middot; ' + escapeHtml(r.time_local) : (r.timestamp ? ' &middot; ' + escapeHtml(fmtRcaTime(r.timestamp)) : '')) + '</div>'));
+
+            // Step 2: JDBC queries (jdbc-spy log)
+            var j = t.jdbc || {};
+            if (j.count > 0) {
+                var qhtml = '';
+                (j.queries || []).forEach(function(q) {
+                    var ms = Math.round(q.exec_time_ms || 0);
+                    var cls = ms >= 1000 ? 'rca-q-crit' : ms >= 100 ? 'rca-q-warn' : '';
+                    qhtml += '<div class="rca-trace-query ' + cls + '">'
+                        + '<span class="rca-q-ms">' + (q.inflight ? 'in-flight' : ms + 'ms') + '</span> '
+                        + '<span class="mono">' + escapeHtml(q.sql || '') + '</span></div>';
+                });
+                steps.push(traceStep('jdbc_spy_log', 'Database — ' + j.count + ' quer' + (j.count === 1 ? 'y' : 'ies'),
+                    'total <strong>' + escapeHtml(String(j.total_ms)) + 'ms</strong>, slowest <strong>'
+                    + escapeHtml(String(j.slowest_ms)) + 'ms</strong>' + qhtml));
+            }
+
+            // Step 3: transactions (tx log)
+            if (t.transactions && t.transactions.length > 0) {
+                var txhtml = t.transactions.map(function(tx) {
+                    var oc = tx.outcome || 'UNKNOWN';
+                    var badge = oc === 'ABORTED' ? 'rca-tx-abort' : oc === 'COMMITTED' ? 'rca-tx-ok' : 'rca-tx-other';
+                    return '<div class="rca-trace-sub"><span class="rca-tx-badge ' + badge + '">' + escapeHtml(oc) + '</span> '
+                        + '<span class="mono">' + escapeHtml(String(tx.tx_id || '')) + '</span>'
+                        + (tx.duration_ms ? ' &middot; ' + Math.round(tx.duration_ms) + 'ms' : '') + '</div>';
+                }).join('');
+                steps.push(traceStep('tx_log', 'Transactions — ' + t.transactions.length, txhtml));
+            }
+
+            // Step 4: server-log errors
+            if (t.errors && t.errors.length > 0) {
+                var ehtml = t.errors.slice(0, 5).map(function(e) {
+                    return '<div class="rca-trace-sub"><span class="rca-lvl rca-lvl-' + escapeHtml((e.level || '').toLowerCase()) + '">'
+                        + escapeHtml(e.level || '') + '</span> '
+                        + (e.exception_class ? '<span class="mono">' + escapeHtml(e.exception_class) + '</span> ' : '')
+                        + escapeHtml(e.message || '') + '</div>';
+                }).join('');
+                steps.push(traceStep('server_log', 'Errors on this thread — ' + t.errors.length, ehtml));
+            }
+
+            // Step 5: GC overlap
+            var g = t.gc || {};
+            if (g.overlap_count > 0) {
+                steps.push(traceStep('gc_log', 'GC during request',
+                    '<strong>' + escapeHtml(String(g.overlap_count)) + '</strong> pause(s), <strong>'
+                    + escapeHtml(String(g.total_pause_ms)) + 'ms</strong> total stall'));
+            }
+
+            // Step 6: thread stack from the dump
+            var s = t.thread_stack;
+            if (s) {
+                var frames = (s.top_frames || []).map(function(fr) {
+                    return '<div class="rca-trace-frame mono">at ' + escapeHtml(fr) + '</div>';
+                }).join('');
+                var caveat = s.during_request
+                    ? '<div class="rca-trace-sub" style="color:var(--healthy,#00ff88);">&#10003; dump captured while this request was in flight</div>'
+                    : '<div class="rca-trace-sub" style="color:var(--warning,#ffaa00);">&#9888; dump captured at ' + escapeHtml(fmtRcaTime(s.dump_time) || 'another time') + ', outside this request&rsquo;s window &mdash; thread may have returned to the pool</div>';
+                steps.push(traceStep('thread_dump', 'Thread stack (' + escapeHtml(s.thread_state || '') + ')',
+                    '<span class="mono">' + escapeHtml(s.thread_name || '') + '</span>' + caveat + frames));
+            }
+
+            return '<div class="rca-trace"><div class="rca-trace-title">&#128279; Cross-file trace</div>'
+                + steps.join('<div class="rca-trace-arrow">&darr;</div>') + '</div>';
+        }
+
+        function traceStep(source, label, body) {
+            return '<div class="rca-trace-step">'
+                + '<div class="rca-trace-step-head"><span class="rca-evidence-src">' + escapeHtml(source) + '</span> '
+                + '<span class="rca-trace-label">' + label + '</span></div>'
+                + '<div class="rca-trace-body">' + body + '</div></div>';
+        }
+
+        // Format a log timestamp for display (ISO instant -> readable, keep others verbatim)
+        function fmtRcaTime(s) {
+            if (!s) return '';
+            return String(s).replace('T', ' ').replace(/Z$/, ' UTC');
+        }
+
+        // Render the "when in the logs" time badge for a finding
+        function formatFindingTime(tr) {
+            if (!tr) return '';
+            var style = 'margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);white-space:nowrap;';
+            if (tr.snapshot) {
+                return '<span style="' + style + '" title="Thread dump capture time">&#128337; snapshot @ ' + escapeHtml(fmtRcaTime(tr.snapshot)) + '</span>';
+            }
+            if (tr.first) {
+                var count = tr.count ? ' &middot; ' + tr.count + '&times;' : '';
+                if (tr.first === tr.last) {
+                    return '<span style="' + style + '" title="Time of related log events">&#128337; ' + escapeHtml(fmtRcaTime(tr.first)) + count + '</span>';
+                }
+                return '<span style="' + style + '" title="Time window of related log events">&#128337; ' + escapeHtml(fmtRcaTime(tr.first)) + ' &rarr; ' + escapeHtml(fmtRcaTime(tr.last)) + count + '</span>';
+            }
+            return '';
+        }
+
+        // -- Slow APIs --
+        // Sortable table state. Default: most recent activity first (last hit desc),
+        // then highest response time — user can click headers to re-sort by any column.
+        var slowApiState = { apis: [], summary: {} };
+        var slowApiSort = { key: 'last_hit_ms', dir: -1 };
+
+        // Value extractor per sort key; strings compared case-insensitively.
+        function slowApiSortValue(a, key) {
+            if (key === 'endpoint') return ((a.method || '') + ' ' + (a.uri || '')).toLowerCase();
+            return a[key] || 0;
+        }
+
+        // True when the uploaded thread dump had a thread in-flight for this endpoint at
+        // capture time (a.matched_threads is populated by the backend dump correlation).
+        function hasMatchedDumpThread(a) {
+            return !!(a.matched_threads && a.matched_threads.length);
+        }
+
+        // Re-sort and re-render on header click; toggles direction, or resets to a
+        // sensible default (desc for numbers/time, asc for the endpoint name).
+        function sortSlowApis(key) {
+            if (slowApiSort.key === key) {
+                slowApiSort.dir = -slowApiSort.dir;
+            } else {
+                slowApiSort.key = key;
+                slowApiSort.dir = (key === 'endpoint') ? 1 : -1;
+            }
+            renderSlowApiRows();
+        }
+
+        function renderSlowApis(apis, summary) {
+            slowApiState.apis = apis || [];
+            slowApiState.summary = summary || {};
+            renderSlowApiRows();
+        }
+
+        function renderSlowApiRows() {
+            var apis = slowApiState.apis;
+            var summary = slowApiState.summary || {};
+            document.getElementById('slowApiCountBadge').textContent = apis.length;
+            var tbody = document.getElementById('slowApiBody');
+            // Access log was uploaded but its pattern has no response time (%D) — the endpoints
+            // parse but there is no timing to rank. Point the user at the required log pattern.
+            if (summary.access_log_analyzed && !summary.access_log_has_response_time) {
+                tbody.innerHTML = '<tr><td colspan="8" class="rca-empty-state" style="text-align:left;line-height:1.6;">'
+                    + '<strong>No response times in this access log.</strong><br>'
+                    + 'The endpoints were read, but this log\'s pattern has no per-request response time (<code>%D</code>), '
+                    + 'so slow APIs can\'t be ranked. Enable it in Undertow and reload:<br>'
+                    + '<code style="display:block;margin-top:6px;white-space:pre-wrap;">'
+                    + '/subsystem=undertow/server=default-server/host=default-host/setting=access-log:'
+                    + 'write-attribute(name=pattern,value="%h %t \\"%r\\" %s %D %b %I")</code>'
+                    + '</td></tr>';
+                return;
+            }
+            if (apis.length === 0) {
+                var msg = summary.access_log_analyzed
+                    ? 'No slow APIs detected.'
+                    : 'No access log uploaded. Upload an access log (with the %D response-time pattern) to see slow APIs.';
+                tbody.innerHTML = '<tr><td colspan="8" class="rca-empty-state">' + msg + '</td></tr>';
+                return;
+            }
+            // Sort by the active column (default: last hit desc), with max time as the
+            // tie-breaker so equal-timestamp rows still rank highest-response-time first.
+            // APIs with a thread matched from the uploaded dump always float to the top,
+            // so a dump-correlated API starts on the 1st row regardless of the column sort.
+            var key = slowApiSort.key, dir = slowApiSort.dir;
+            var sorted = apis.slice().sort(function(a, b) {
+                var ma = hasMatchedDumpThread(a) ? 1 : 0, mb = hasMatchedDumpThread(b) ? 1 : 0;
+                if (ma !== mb) return mb - ma;
+                var va = slowApiSortValue(a, key), vb = slowApiSortValue(b, key);
+                if (va < vb) return -1 * dir;
+                if (va > vb) return 1 * dir;
+                return (b.max_time_ms || 0) - (a.max_time_ms || 0);
+            });
+            updateSlowApiSortArrows();
+            var rows = sorted.map(function(a) {
+                var avgCls = timeClass(a.avg_time_ms || 0);
+                var maxCls = timeClass(a.max_time_ms || 0);
+                var statusHtml = '';
+                if (a.status_codes) {
+                    var codes = typeof a.status_codes === 'object' ? a.status_codes : {};
+                    statusHtml = Object.keys(codes).map(function(c) {
+                        var color = parseInt(c) >= 500 ? 'var(--critical)' : parseInt(c) >= 400 ? 'var(--warning)' : 'var(--text-muted)';
+                        return '<span style="color:' + color + ';font-family:var(--font-mono);font-size:11px;">' + escapeHtml(c) + ':' + codes[c] + '</span>';
+                    }).join(' ');
+                }
+                var threadsHtml = renderSlowApiThreads(a);
+                var lastHitHtml = a.last_hit
+                    ? '<span class="mono" style="font-size:11px;" title="' + escapeHtml(a.last_hit) + '">' + escapeHtml(fmtRcaTime(a.last_hit)) + '</span>'
+                    : '<span style="color:var(--text-muted);">-</span>';
+                var errCount = a.error_count || 0;
+                return '<tr>'
+                    + '<td><span class="mono" style="font-size:12px;">' + escapeHtml((a.method || '') + ' ' + (a.uri || '')) + '</span></td>'
+                    + '<td class="mono">' + formatNumber(a.hit_count || 0) + '</td>'
+                    + '<td class="mono ' + avgCls + '">' + formatMs(a.avg_time_ms || 0) + '</td>'
+                    + '<td class="mono ' + maxCls + '">' + formatMs(a.max_time_ms || 0) + '</td>'
+                    + '<td>' + (statusHtml || '-') + '</td>'
+                    + '<td>' + lastHitHtml + '</td>'
+                    + '<td style="max-width:280px;">' + threadsHtml + '</td>'
+                    + '<td class="mono" style="' + (errCount > 0 ? 'color:var(--critical);font-weight:600;' : '') + '">' + errCount + '</td>'
+                    + '</tr>';
+            });
+            paginateTable('slowApiBody', rows);
+        }
+
+        // Show the ▲/▼ indicator on the active sort column header, clear the rest.
+        function updateSlowApiSortArrows() {
+            var arrows = document.querySelectorAll('#slowApiTable .sort-arrow');
+            for (var i = 0; i < arrows.length; i++) {
+                var el = arrows[i];
+                if (el.getAttribute('data-key') === slowApiSort.key) {
+                    el.textContent = slowApiSort.dir < 0 ? ' ▼' : ' ▲';
+                } else {
+                    el.textContent = '';
+                }
+            }
+        }
+
+        // Render the exact thread(s) from the uploaded thread dump matched to this slow API.
+        // A thread is matched only if a request for THIS endpoint was in-flight on that
+        // thread at the moment the dump was captured (worker threads are pooled/reused, so
+        // name alone is ambiguous). Sorted by most-recent hit, each with its dump state.
+        function renderSlowApiThreads(a) {
+            var matched = a.matched_threads;
+            if (!matched || !matched.length) {
+                if (a.thread_dump_provided) {
+                    // A dump was uploaded but no thread of this endpoint was running at capture time.
+                    // Do NOT fall back to name matching — that would mis-attribute reused worker threads.
+                    var msg = a.dump_time_known
+                        ? 'No thread active at dump capture time'
+                        : 'Dump has no timestamp — cannot verify timeframe';
+                    return '<span style="color:var(--text-muted);font-size:11px;font-style:italic;">' + msg + '</span>';
+                }
+                // No thread dump attached — show plain thread names from the access log for reference.
+                var names = a.threads || [];
+                if (!names.length) return '<span style="color:var(--text-muted);">-</span>';
+                return names.map(function(t) {
+                    return '<span class="mono" style="font-size:11px;">' + escapeHtml(t) + '</span>';
+                }).join(', ');
+            }
+            return matched.map(function(m) {
+                var name = m.thread || '';
+                var nameHtml;
+                if (m.in_dump && rcaThreadStacks[name]) {
+                    nameHtml = '<span class="rca-thread-link mono" style="font-size:11px;" onclick="showRcaThreadStack(\'' + escapeHtml(name).replace(/'/g, "\\'") + '\')">' + escapeHtml(name) + '</span>';
+                } else {
+                    nameHtml = '<span class="mono" style="font-size:11px;' + (m.in_dump ? '' : 'color:var(--text-muted);') + '">' + escapeHtml(name) + '</span>';
+                }
+                var badge = m.in_dump && m.thread_state
+                    ? ' <span class="thread-state-badge ' + rcaStateCss(m.thread_state) + '" style="font-size:9px;padding:1px 5px;">' + escapeHtml(m.thread_state) + '</span>'
+                    : (m.in_dump ? '' : ' <span style="font-size:9px;color:var(--text-muted);">(not in dump)</span>');
+                var when = m.last_hit
+                    ? ' <span class="mono" style="font-size:10px;color:var(--text-muted);" title="' + escapeHtml(m.last_hit) + '">@ ' + escapeHtml(fmtRcaTime(m.last_hit)) + '</span>'
+                    : '';
+                return '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:1px 0;">' + nameHtml + badge + when + '</div>';
+            }).join('');
+        }
+
+        // Format an ISO timestamp to a compact local time for the RCA tables.
+        function fmtRcaTime(iso) {
+            if (!iso) return '-';
+            try {
+                var d = new Date(iso);
+                if (isNaN(d.getTime())) return iso;
+                var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+                return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+            } catch (e) { return iso; }
+        }
+
+        function timeClass(ms) {
+            if (ms >= 5000) return 'time-critical';
+            if (ms >= 1000) return 'time-warning';
+            return 'time-ok';
+        }
+
+        function highlightRcaFrame(frame) {
+            if (!frame) return '';
+            if (frame.indexOf('sun.') === 0 || frame.indexOf('java.') === 0 || frame.indexOf('javax.') === 0 || frame.indexOf('jdk.') === 0) {
+                return escapeHtml(frame);
+            }
+            return '<span class="rca-stack-frame-app">' + escapeHtml(frame) + '</span>';
+        }
+
+        function showRcaThreadStack(threadName) {
+            var thread = rcaThreadStacks[threadName];
+            // Resilient lookup: tolerate whitespace differences between the rendered name and the dump key.
+            if (!thread && threadName) {
+                var want = threadName.trim();
+                var hitKey = Object.keys(rcaThreadStacks).find(function(k) { return k.trim() === want; });
+                if (hitKey) thread = rcaThreadStacks[hitKey];
+            }
+            if (!thread) {
+                // Never fail silently — tell the user why nothing opened.
+                var why = Object.keys(rcaThreadStacks).length === 0
+                    ? 'No thread dump has been analyzed yet. Upload a thread dump and click Analyze, then try again.'
+                    : 'No stacktrace for "' + threadName + '" in the uploaded thread dump.';
+                if (typeof showToast === 'function') showToast(why, 'warning');
+                return;
+            }
+
+            var modal = document.getElementById('rcaThreadModal');
+            var title = document.getElementById('rcaThreadModalTitle');
+            var body = document.getElementById('rcaThreadModalBody');
+
+            title.textContent = threadName;
+
+            var stateBadge = 'badge-info';
+            var state = thread.thread_state || 'UNKNOWN';
+            if (state === 'RUNNABLE') stateBadge = 'badge-healthy';
+            else if (state === 'BLOCKED') stateBadge = 'badge-critical';
+            else if (state === 'WAITING' || state === 'TIMED_WAITING') stateBadge = 'badge-warning';
+
+            var metaHtml = '<div class="rca-thread-meta">'
+                + '<div class="rca-thread-meta-item"><span class="meta-label">State:</span> <span class="meta-value"><span class="badge ' + stateBadge + '">' + escapeHtml(state) + '</span></span></div>'
+                + '<div class="rca-thread-meta-item"><span class="meta-label">Daemon:</span> <span class="meta-value">' + (thread.daemon ? 'Yes' : 'No') + '</span></div>';
+            if (thread.lock_name) {
+                metaHtml += '<div class="rca-thread-meta-item"><span class="meta-label">Lock:</span> <span class="meta-value" style="color:var(--critical);">' + escapeHtml(thread.lock_name) + '</span></div>';
+            }
+            if (thread.lock_owner) {
+                metaHtml += '<div class="rca-thread-meta-item"><span class="meta-label">Lock Owner:</span> <span class="meta-value" style="color:var(--warning);">' + escapeHtml(thread.lock_owner) + '</span></div>';
+            }
+            if (thread.top_frame) {
+                metaHtml += '<div class="rca-thread-meta-item" style="grid-column:1/-1;"><span class="meta-label">Top Frame:</span> <span class="meta-value">' + escapeHtml(thread.top_frame) + '</span></div>';
+            }
+            metaHtml += '</div>';
+
+            var stack = thread.stack_trace || [];
+            var stackHtml = '';
+            if (stack.length === 0) {
+                stackHtml = '<div class="rca-stack-trace-box" style="color: var(--text-muted); font-style: italic;">No stack trace available</div>';
+            } else {
+                var frames = stack.map(function(frame) {
+                    return '  at ' + highlightRcaFrame(frame);
+                }).join('\n');
+                stackHtml = '<div style="margin-bottom: 8px; font-size: 12px; color: var(--text-muted);">Stack Trace (' + stack.length + ' frames)</div>'
+                    + '<div class="rca-stack-trace-box">' + frames + '</div>';
+            }
+
+            body.innerHTML = metaHtml + stackHtml;
+            modal.classList.add('active');
+        }
+
+        function closeRcaThreadModal() {
+            document.getElementById('rcaThreadModal').classList.remove('active');
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeRcaThreadModal();
+        });
+
+        // -- Thread Analysis --
+        var STATE_COLORS = {
+            RUNNABLE: '#00ff88', BLOCKED: '#ff2244', WAITING: '#ffaa00',
+            TIMED_WAITING: '#00d4ff', NEW: '#6e7681', TERMINATED: '#484f58', UNKNOWN: '#484f58'
+        };
+
+        function renderThreadAnalysis(ta) {
+            var total = ta.total || 0;
+            document.getElementById('threadCountBadge').textContent = total + ' threads';
+
+            // Provenance banner — prove this data came from the user's uploaded file, not live threads.
+            var provEl = document.getElementById('threadDumpProvenance');
+            var provTextEl = document.getElementById('threadDumpProvenanceText');
+            if (ta.dump_provided) {
+                var meta = rcaFileMeta.thread_dump || {};
+                var fname = meta.name ? escapeHtml(meta.name) : 'thread dump';
+                var fsize = meta.size ? ' (' + formatBytes(meta.size) + ')' : '';
+                var when = ta.dump_time
+                    ? ', captured @ <strong>' + escapeHtml(ta.dump_time) + '</strong> (from the first line of your file)'
+                    : ' (no capture timestamp inside the file)';
+                var multiDump = '';
+                if (rcaDumps && rcaDumps.length > 1) {
+                    var opts = '';
+                    for (var di = 0; di < rcaDumps.length; di++) {
+                        var d = rcaDumps[di];
+                        var dtime = d.time ? escapeHtml(d.time) : 'no timestamp';
+                        var dcount = (d.thread_count != null) ? d.thread_count : '?';
+                        var sel = (di === rcaSelectedDump) ? ' selected' : '';
+                        opts += '<option value="' + di + '"' + sel + '>#' + (di + 1) + ' &mdash; ' + dtime + ' (' + dcount + ' threads)</option>';
+                    }
+                    multiDump =
+                        '<br><span style="color:var(--text-muted);">Your file contains <strong>' + rcaDumps.length
+                        + '</strong> thread-dump snapshots (a jstack loop). Showing snapshot #' + (rcaSelectedDump + 1) + '. '
+                        + 'Switch snapshot: </span>'
+                        + '<select id="rcaDumpSelect" onchange="selectRcaDump(this.value)" '
+                        + 'style="margin-left:6px;padding:2px 6px;background:var(--bg-secondary);color:var(--text-primary);'
+                        + 'border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:0.85em;">'
+                        + opts + '</select>';
+                }
+                provTextEl.innerHTML =
+                    'Parsed <strong>' + total + '</strong> threads from the file <strong>you uploaded</strong>: '
+                    + '<span class="mono" style="color:var(--text-primary);">' + fname + '</span>' + fsize + when
+                    + '.<br><span style="color:var(--text-muted);">Every thread and stacktrace below is read from this file &mdash; nothing is fetched live from the server. '
+                    + 'Expand a thread&rsquo;s &#9656; to see its exact stacktrace as it appears in your file.</span>'
+                    + multiDump;
+                provEl.style.display = 'flex';
+            } else {
+                provTextEl.innerHTML = 'No thread dump was uploaded &mdash; thread analysis is empty. Attach a thread dump file to populate this section.';
+                provEl.style.display = 'flex';
+            }
+
+            // Daemon / non-daemon counts
+            document.getElementById('threadDaemonCount').textContent = ta.daemon_count != null ? ta.daemon_count : '--';
+            document.getElementById('threadNonDaemonCount').textContent = ta.non_daemon_count != null ? ta.non_daemon_count : '--';
+
+            // Deadlock warning
+            var deadlocks = ta.deadlock_threads || [];
+            var dlWarn = document.getElementById('deadlockWarning');
+            if (deadlocks.length > 0) {
+                dlWarn.style.display = 'block';
+                document.getElementById('deadlockDetails').textContent =
+                    'Circular lock dependency detected between ' + deadlocks.length + ' threads: ' + deadlocks.join(', ')
+                    + '. These threads will never release their locks.';
+            } else {
+                dlWarn.style.display = 'none';
+            }
+
+            // State distribution bar
+            var states = ta.state_summary || {};
+            var keys = Object.keys(states);
+            var stateBar = document.getElementById('threadStateBar');
+            if (keys.length > 0 && total > 0) {
+                stateBar.style.display = 'block';
+                var barHtml = '';
+                var legendHtml = '';
+                keys.forEach(function(k) {
+                    var color = STATE_COLORS[k] || '#6e7681';
+                    var pct = (states[k] / total * 100);
+                    if (pct < 0.5) pct = 0.5;
+                    barHtml += '<div style="width:' + pct + '%;background:' + color + ';min-width:2px;transition:width 0.3s;"'
+                        + ' title="' + k.replace('_',' ') + ': ' + states[k] + ' (' + Math.round(states[k]/total*100) + '%)"'
+                        + '></div>';
+                    legendHtml += '<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-secondary);">'
+                        + '<span style="width:10px;height:10px;border-radius:3px;background:' + color + ';flex-shrink:0;"></span>'
+                        + k.replace('_',' ') + ' <span style="font-family:var(--font-mono);font-weight:600;color:var(--text-primary);">'
+                        + states[k] + '</span>'
+                        + '<span style="color:var(--text-muted);">(' + Math.round(states[k]/total*100) + '%)</span>'
+                        + '</div>';
+                });
+                document.getElementById('threadStateBarInner').innerHTML = barHtml;
+                document.getElementById('threadStateBarLegend').innerHTML = legendHtml;
+            } else {
+                stateBar.style.display = 'none';
+            }
+
+            // State pills
+            var pillsEl = document.getElementById('threadStatePills');
+            if (keys.length > 0) {
+                pillsEl.innerHTML = keys.map(function(k) {
+                    var color = STATE_COLORS[k] || '#6e7681';
+                    return '<div class="state-pill"><span class="dot" style="background:' + color + ';"></span>'
+                        + k.replace('_', ' ') + '<span class="pill-count">' + states[k] + '</span></div>';
+                }).join('');
+            } else {
+                pillsEl.innerHTML = '';
+            }
+
+            // Category summary badges (matches threads.html busy-cat-summary)
+            var categories = ta.thread_categories || {};
+            var catKeys = Object.keys(categories).sort(function(a, b) { return categories[b] - categories[a]; });
+            var catSummary = document.getElementById('rcaTrackedCatSummary');
+            catSummary.innerHTML = catKeys.map(function(k) {
+                return '<span class="busy-category-badge ' + rcaCatCss(k) + '" style="cursor:pointer;" '
+                    + 'onclick="setCategoryFilter(\'' + escapeHtml(k).replace(/'/g, "\\'") + '\')" '
+                    + 'title="Click to filter by ' + escapeHtml(k.replace(/-/g,' ')) + '">'
+                    + escapeHtml(k.replace(/-/g,' ')) + ' ' + categories[k] + '</span>';
+            }).join('');
+
+            // ── Blocked Events tab ──
+            var blocked = ta.blocked_threads || [];
+            document.getElementById('rcaBlockedCount').textContent = blocked.length;
+            var btbody = document.getElementById('blockedBody');
+            if (blocked.length === 0) {
+                btbody.innerHTML = '<div class="rca-empty-state">No blocked threads found in the uploaded thread dump.</div>';
+            } else {
+                var bhtml = '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>'
+                    + '<th>Thread Name</th><th>Lock</th><th>Lock Owner</th><th>Top Stack Frames</th>'
+                    + '</tr></thead><tbody>';
+                bhtml += blocked.map(function(b) {
+                    var frames = b.top_frames || [];
+                    var stackHtml = frames.slice(0, 5).map(function(f) {
+                        return '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);">at ' + escapeHtml(f) + '</div>';
+                    }).join('');
+                    return '<tr>'
+                        + '<td class="mono" style="font-size:12px;">' + rcaNameCell(b.thread_name) + '</td>'
+                        + '<td style="font-size:11px;color:var(--critical);font-family:var(--font-mono);word-break:break-all;">' + escapeHtml(b.lock_name || '-') + '</td>'
+                        + '<td style="font-size:11px;color:var(--warning);font-family:var(--font-mono);">' + escapeHtml(b.lock_owner || '-') + '</td>'
+                        + '<td>' + (stackHtml || '-') + '</td>'
+                        + '</tr>';
+                }).join('');
+                bhtml += '</tbody></table></div>';
+                btbody.innerHTML = bhtml;
+            }
+
+            // ── Deadlocks tab ──
+            document.getElementById('rcaDeadlockCount').textContent = deadlocks.length;
+            var dlBody = document.getElementById('rcaDeadlockBody');
+            if (deadlocks.length === 0) {
+                dlBody.innerHTML = '<div class="rca-empty-state"><div class="rca-empty-icon">&#9989;</div><div class="rca-empty-text">No deadlocks detected in the uploaded thread dump.</div></div>';
+            } else {
+                dlBody.innerHTML = '<div style="padding:12px 16px;background:rgba(255,34,68,0.06);border:1px solid rgba(255,34,68,0.2);border-radius:8px;margin-bottom:12px;font-size:12px;color:var(--text-secondary);line-height:1.6;">'
+                    + '<strong style="color:var(--critical);">Circular lock dependency</strong> between ' + deadlocks.length + ' threads. These threads will never release their locks.</div>'
+                    + deadlocks.map(function(name) {
+                        return '<div style="padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;margin-bottom:6px;font-family:var(--font-mono);font-size:12px;">'
+                            + rcaNameCell(name) + '</div>';
+                    }).join('');
+            }
+
+            // Contention groups (inside Deadlocks tab)
+            var contention = ta.contention_groups || [];
+            document.getElementById('rcaContentionCount').textContent = contention.length;
+            var cEl = document.getElementById('contentionBody');
+            if (contention.length === 0) {
+                cEl.innerHTML = '<div class="rca-empty-state"><div class="rca-empty-icon">&#128274;</div><div class="rca-empty-text">No lock contention groups detected.</div></div>';
+            } else {
+                cEl.innerHTML = contention.map(function(cg) {
+                    var threadList = (cg.waiters || []).map(function(t) { return escapeHtml(t); }).join(', ');
+                    return '<div class="contention-group">'
+                        + '<div class="contention-lock">Lock: ' + escapeHtml(cg.lock || 'unknown')
+                        + ' <span style="color:var(--text-muted);font-weight:400;">(' + escapeHtml(cg.lock_class || '') + ')</span>'
+                        + '</div>'
+                        + '<div style="font-size:12px;color:var(--warning);margin-bottom:6px;">Owner: ' + escapeHtml(cg.owner_thread || '-') + '</div>'
+                        + '<div class="contention-threads">' + (cg.waiters || []).length + ' threads waiting: ' + threadList + '</div>'
+                        + '</div>';
+                }).join('');
+            }
+        }
+
+        // Map RCA thread category -> badge css class (matches threads.html)
+        function rcaCatCss(cat) {
+            switch (cat) {
+                case 'http-worker': return 'cat-http';
+                case 'io-subsystem': return 'cat-io';
+                case 'jca-worker': return 'cat-db';
+                case 'transaction': return 'cat-tx';
+                case 'gc-internal': return 'cat-gc';
+                case 'batch-scheduler': return 'cat-task';
+                case 'ejb-async': return 'cat-ejb';
+                default: return 'cat-other';
+            }
+        }
+
+        // Thread-name cell: clickable link opening the stack modal when a stack is available
+        function rcaNameCell(name) {
+            if (name && rcaThreadStacks[name]) {
+                return '<span class="rca-thread-link" onclick="showRcaThreadStack(\'' + escapeHtml(name).replace(/'/g, "\\'") + '\')">' + escapeHtml(name) + '</span>';
+            }
+            return escapeHtml(name || '(unnamed)');
+        }
+
+        // Switch between Thread Analysis tabs (All Threads / Long Running / Deadlocks / Blocked)
+        function switchRcaThreadTab(tabId, btn) {
+            document.querySelectorAll('.th-tab-bar .th-tab-btn').forEach(function(b) { b.classList.remove('active'); });
+            ['AllThreads', 'LongRunning', 'Deadlocks', 'Blocked'].forEach(function(id) {
+                var p = document.getElementById('rcaTab' + id);
+                if (p) p.classList.remove('active');
+            });
+            if (btn) btn.classList.add('active');
+            var panelId = 'rcaTab' + tabId.charAt(0).toUpperCase() + tabId.slice(1);
+            var panel = document.getElementById(panelId);
+            if (panel) panel.classList.add('active');
+        }
+
+        // -- Long Running Threads tab --
+        function renderLongRunningThreads(threads) {
+            document.getElementById('rcaLongRunningCount').textContent = threads.length;
+            var container = document.getElementById('longRunningBody');
+            if (threads.length === 0) {
+                container.innerHTML = '<div class="rca-empty-state">No long running threads detected. Threads with CPU &gt; 1s or RUNNABLE with high CPU appear here.</div>';
+                return;
+            }
+            container.innerHTML = rcaThreadTableHtml(threads);
+        }
+
+        function formatElapsed(secs) {
+            if (secs < 60) return secs.toFixed(1) + 's';
+            if (secs < 3600) return (secs / 60).toFixed(1) + 'm';
+            return (secs / 3600).toFixed(1) + 'h';
+        }
+
+        // Build a data-table (matches threads.html Thread Details) for a list of threads.
+        // Threads are sorted by time (elapsed, longest-running first); those without an
+        // elapsed value fall to the bottom.
+        function rcaThreadTableHtml(threads) {
+            var sorted = (threads || []).slice().sort(function(a, b) {
+                var ea = (a.elapsed_s != null && a.elapsed_s >= 0) ? a.elapsed_s : -1;
+                var eb = (b.elapsed_s != null && b.elapsed_s >= 0) ? b.elapsed_s : -1;
+                if (eb !== ea) return eb - ea;
+                // Tie-break by CPU time (busiest first).
+                var ca = (a.cpu_ms != null && a.cpu_ms >= 0) ? a.cpu_ms : -1;
+                var cb = (b.cpu_ms != null && b.cpu_ms >= 0) ? b.cpu_ms : -1;
+                return cb - ca;
+            });
+            var html = '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>'
+                + '<th style="width:20px;"></th><th>Thread Name</th><th>State</th><th>Category</th><th>CPU Time</th><th>Elapsed ▼</th><th>Top Frame</th><th>Lock Info</th>'
+                + '</tr></thead><tbody>';
+            html += sorted.map(rcaThreadRow).join('');
+            html += '</tbody></table></div>';
+            return html;
+        }
+
+        // Toggle the inline stacktrace detail row beneath a thread row.
+        function toggleRcaStack(caretEl, threadName) {
+            var row = caretEl.closest('tr');
+            var detail = row.nextElementSibling;
+            if (!detail || !detail.classList.contains('rca-stack-detail')) return;
+            var open = detail.style.display !== 'none';
+            if (open) {
+                detail.style.display = 'none';
+                caretEl.innerHTML = '&#9656;'; // ▸
+            } else {
+                // Lazily render the stacktrace on first expand
+                if (!detail.getAttribute('data-loaded')) {
+                    detail.querySelector('td').innerHTML = inlineStackHtml(threadName);
+                    detail.setAttribute('data-loaded', '1');
+                }
+                detail.style.display = '';
+                caretEl.innerHTML = '&#9662;'; // ▾
+            }
+        }
+
+        // Build the inline stacktrace block for a thread from the uploaded dump.
+        function inlineStackHtml(threadName) {
+            var thread = rcaThreadStacks[threadName];
+            if (!thread) return '<div style="color:var(--text-muted);font-style:italic;padding:8px 12px;">Thread not found in uploaded dump.</div>';
+            var stack = thread.stack_trace || [];
+            var head = '';
+            if (thread.lock_name) {
+                head += '<div style="font-size:11px;color:var(--critical);margin-bottom:4px;">Waiting on lock: ' + escapeHtml(thread.lock_name)
+                    + (thread.lock_owner ? ' <span style="color:var(--warning);">(owner: ' + escapeHtml(thread.lock_owner) + ')</span>' : '') + '</div>';
+            }
+            if (stack.length === 0) {
+                return head + '<div class="rca-stack-trace-box" style="color:var(--text-muted);font-style:italic;">No stack frames in the uploaded dump for this thread (typical for GC/VM/idle native threads).</div>';
+            }
+            var frames = stack.map(function(f) { return '  at ' + highlightRcaFrame(f); }).join('\n');
+            return head + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Stack Trace (' + stack.length + ' frames) — from uploaded thread dump</div>'
+                + '<div class="rca-stack-trace-box">' + frames + '</div>';
+        }
+
+        function rcaThreadRow(t) {
+            var stateCss = rcaStateCss(t.thread_state);
+            var catCss = rcaCatCss(t.category);
+            var hasCpu = t.cpu_ms != null && t.cpu_ms >= 0;
+            var cpuHtml = hasCpu ? formatMs(t.cpu_ms) : '-';
+            var cpuCls = hasCpu && t.cpu_ms > 5000 ? 'time-critical' : hasCpu && t.cpu_ms > 1000 ? 'time-warning' : '';
+            var elapsedHtml = (t.elapsed_s != null && t.elapsed_s >= 0) ? formatElapsed(t.elapsed_s) : '-';
+            var topFrame = t.top_frame || (t.top_frames && t.top_frames[0]) || '-';
+            var lockInfo = '-';
+            if (t.lock_name) {
+                lockInfo = '<span style="color:var(--critical);">' + escapeHtml(t.lock_name) + '</span>';
+                if (t.lock_owner) lockInfo += ' <span style="color:var(--warning);">owner: ' + escapeHtml(t.lock_owner) + '</span>';
+            }
+            var catCell = t.category
+                ? '<span class="busy-category-badge ' + catCss + '" style="cursor:pointer;" onclick="setCategoryFilter(\'' + escapeHtml(t.category).replace(/'/g, "\\'") + '\')" title="Click to filter by this category">' + escapeHtml(t.category.replace(/-/g,' ')) + '</span>'
+                : '-';
+            var name = t.thread_name || '';
+            var escName = escapeHtml(name).replace(/'/g, "\\'");
+            var caret = '<span class="rca-stack-caret" title="Show stack trace" onclick="toggleRcaStack(this, \'' + escName + '\')" style="cursor:pointer;color:var(--accent);user-select:none;">&#9656;</span>';
+            return '<tr>'
+                + '<td style="text-align:center;">' + caret + '</td>'
+                + '<td class="mono" style="font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(name) + '">' + rcaNameCell(t.thread_name) + '</td>'
+                + '<td><span class="thread-state-badge ' + stateCss + '">' + escapeHtml((t.thread_state || 'UNKNOWN').replace('_',' ')) + '</span></td>'
+                + '<td>' + catCell + '</td>'
+                + '<td class="mono ' + cpuCls + '" style="font-size:11px;">' + cpuHtml + '</td>'
+                + '<td class="mono" style="font-size:11px;">' + elapsedHtml + '</td>'
+                + '<td class="mono" style="font-size:11px;color:var(--accent);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(topFrame) + '">' + escapeHtml(topFrame) + '</td>'
+                + '<td style="font-size:11px;font-family:var(--font-mono);">' + lockInfo + '</td>'
+                + '</tr>'
+                + '<tr class="rca-stack-detail" style="display:none;"><td colspan="8" style="background:rgba(0,0,0,0.15);padding:12px 16px;"></td></tr>';
+        }
+
+        // -- All Threads tab --
+        var _allThreadsData = [];
+
+        function renderAllThreads(allThreads) {
+            _allThreadsData = allThreads || [];
+            document.getElementById('rcaAllThreadsCount').textContent = _allThreadsData.length;
+
+            // Populate the category dropdown from the uploaded dump's threads
+            var cats = {};
+            _allThreadsData.forEach(function(t) { if (t.category) cats[t.category] = (cats[t.category] || 0) + 1; });
+            var catSel = document.getElementById('historyCatFilter');
+            var prev = catSel.value;
+            catSel.innerHTML = '<option value="">All Categories</option>'
+                + Object.keys(cats).sort().map(function(c) {
+                    return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c.replace(/-/g,' ')) + ' (' + cats[c] + ')</option>';
+                }).join('');
+            if (prev && cats[prev]) catSel.value = prev;
+
+            // Reset ALL filters on a fresh analysis so a leftover search/category
+            // from a previous run can't silently hide every thread.
+            document.getElementById('historyStateFilter').value = '';
+            catSel.value = '';
+            var searchEl = document.getElementById('threadSearchInput');
+            if (searchEl) searchEl.value = '';
+            applyThreadFilter();
+        }
+
+        // Called from category badges/cells: focus the All Threads tab filtered by a category
+        function setCategoryFilter(category) {
+            var catSel = document.getElementById('historyCatFilter');
+            if (catSel) {
+                // Ensure the option exists even if not currently rendered
+                if (!Array.prototype.some.call(catSel.options, function(o) { return o.value === category; })) {
+                    var opt = document.createElement('option');
+                    opt.value = category;
+                    opt.textContent = category.replace(/-/g,' ');
+                    catSel.appendChild(opt);
+                }
+                catSel.value = category;
+            }
+            var firstBtn = document.querySelector('.th-tab-bar .th-tab-btn');
+            switchRcaThreadTab('allThreads', firstBtn);
+            applyThreadFilter();
+            var body = document.getElementById('allThreadsBody');
+            if (body) body.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function filterAllThreads() {
+            applyThreadFilter();
+        }
+
+        function applyThreadFilter() {
+            var stateFilter = document.getElementById('historyStateFilter').value;
+            var catFilter = document.getElementById('historyCatFilter').value;
+            var search = (document.getElementById('threadSearchInput').value || '').toLowerCase();
+
+            var filtered = _allThreadsData.filter(function(t) {
+                if (stateFilter && t.thread_state !== stateFilter) return false;
+                if (catFilter && t.category !== catFilter) return false;
+                if (search && (t.thread_name || '').toLowerCase().indexOf(search) === -1
+                    && (t.top_frame || '').toLowerCase().indexOf(search) === -1
+                    && (t.category || '').toLowerCase().indexOf(search) === -1) return false;
+                return true;
+            });
+
+            document.getElementById('allThreadsCountBadge').textContent = filtered.length + ' of ' + _allThreadsData.length;
+
+            var container = document.getElementById('allThreadsBody');
+            if (filtered.length === 0) {
+                if (_allThreadsData.length === 0) {
+                    // Nothing was parsed from the uploaded dump at all — a format problem, not a filter.
+                    container.innerHTML = '<div class="rca-empty-state">No threads were parsed from the uploaded thread dump.<br>'
+                        + 'The file may be a format this parser doesn\'t recognize (it expects a jstack / <code>kill -3</code> style dump with lines like <code>"thread-name" #12 ... tid=0x...</code>).<br>'
+                        + 'Share the first few lines of your dump and it can be supported.</div>';
+                } else {
+                    container.innerHTML = '<div class="rca-empty-state">' + _allThreadsData.length
+                        + ' threads are loaded from your dump, but none match the current filters. Clear the search/state/category filters above.</div>';
+                }
+                return;
+            }
+            container.innerHTML = rcaThreadTableHtml(filtered);
+        }
+
+        // Map thread state -> badge css class (matches threads.html)
+        function rcaStateCss(state) {
+            switch (state) {
+                case 'RUNNABLE': return 'runnable';
+                case 'BLOCKED': return 'blocked';
+                case 'WAITING': return 'waiting';
+                case 'TIMED_WAITING': return 'timed-waiting';
+                case 'NEW': return 'new';
+                case 'TERMINATED': return 'terminated';
+                default: return 'new';
+            }
+        }
+
+        // -- Error Correlation --
+        function renderErrorCorrelation(errors) {
+            document.getElementById('errorCorrelationBadge').textContent = errors.length;
+            var tbody = document.getElementById('errorCorrelationBody');
+            if (errors.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="rca-empty-state">No correlated errors.</td></tr>';
+                return;
+            }
+            var rows = errors.slice(0, 200).map(function(e) {
+                var lvlCls = '';
+                if (e.level === 'ERROR' || e.level === 'FATAL') lvlCls = 'color:var(--critical);font-weight:600;';
+                else if (e.level === 'WARN') lvlCls = 'color:var(--warning);';
+                var msgTrunc = (e.message || '').length > 120 ? (e.message || '').substring(0, 120) + '...' : (e.message || '');
+                var apiText = e.related_api || '-';
+                var apiHtml;
+                if (e.related_api) {
+                    var st = e.related_status;
+                    var stHtml = (st != null && st !== 0)
+                        ? ' <span class="mono" style="' + (st >= 500 ? 'color:var(--critical);' : st >= 400 ? 'color:var(--warning);' : 'color:var(--muted);') + 'font-size:10px;">[' + st + ']</span>'
+                        : '';
+                    apiHtml = '<span title="' + escapeHtml(apiText) + '">' + escapeHtml(apiText) + '</span>' + stHtml;
+                } else {
+                    apiHtml = '<span style="color:var(--muted);">-</span>';
+                }
+                var rtMs = e.response_time_ms;
+                var rtHtml = rtMs != null ? '<span class="mono ' + timeClass(rtMs) + '">' + formatMs(rtMs) + '</span>' : '-';
+                return '<tr>'
+                    + '<td class="mono" style="font-size:11px;white-space:nowrap;">' + escapeHtml(e.timestamp || '') + '</td>'
+                    + '<td style="' + lvlCls + 'font-size:11px;font-family:var(--font-mono);">' + escapeHtml(e.level || '') + '</td>'
+                    + '<td class="mono" style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(e.thread || '') + '">' + escapeHtml(e.thread || '') + '</td>'
+                    + '<td style="font-size:12px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(e.message || '') + '">' + escapeHtml(msgTrunc) + '</td>'
+                    + '<td class="mono" style="font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + apiHtml + '</td>'
+                    + '<td>' + rtHtml + '</td>'
+                    + '</tr>';
+            });
+            paginateTable('errorCorrelationBody', rows, 10);
+        }
+
+        // -- GC Analysis --
+        // Remember the last GC payload + chosen sort so the dropdown can re-render.
+        var gcState = { gc: {} };
+        var gcSortMode = 'duration'; // 'duration' | 'timestamp'
+
+        // Called by the "Sort by" dropdown above the GC table.
+        function setGcSort(mode) {
+            gcSortMode = mode;
+            renderGcAnalysis(gcState.gc);
+        }
+
+        function renderGcAnalysis(gc) {
+            gc = gc || {};
+            gcState.gc = gc;
+            document.getElementById('gcTotalPauses').textContent = formatNumber(gc.total_pauses || 0);
+            document.getElementById('gcMaxPause').textContent = gc.max_pause_ms != null ? formatMs(gc.max_pause_ms) : '--';
+            document.getElementById('gcAvgPause').textContent = gc.avg_pause_ms != null ? formatMs(Math.round(gc.avg_pause_ms)) : '--';
+            document.getElementById('gcTotalTime').textContent = gc.total_pause_ms != null ? formatMs(gc.total_pause_ms) : '--';
+
+            var pauses = gc.pauses || [];
+            var tbody = document.getElementById('gcBody');
+            if (pauses.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="rca-empty-state">No GC events parsed.</td></tr>';
+                return;
+            }
+            // Sort per the dropdown: by pause duration (longest first) or timestamp (newest first).
+            var gcDuration = function(p) { return p.pause_ms != null ? p.pause_ms : (p.duration_ms || 0); };
+            var gcTime = function(p) { var t = Date.parse(p.timestamp); return isNaN(t) ? 0 : t; };
+            pauses = pauses.slice().sort(function(a, b) {
+                if (gcSortMode === 'timestamp') {
+                    var d = gcTime(b) - gcTime(a);
+                    if (d !== 0) return d;
+                    return gcDuration(b) - gcDuration(a);
+                }
+                return gcDuration(b) - gcDuration(a);
+            });
+            var rows = pauses.slice(0, 200).map(function(p) {
+                var pauseMs = p.pause_ms != null ? p.pause_ms : (p.duration_ms || 0);
+                var durCls = pauseMs >= 500 ? 'time-critical' : pauseMs >= 200 ? 'time-warning' : 'time-ok';
+                var heapHtml = '-';
+                var hb = p.heap_before_mb != null ? p.heap_before_mb : p.heap_before;
+                var ha = p.heap_after_mb != null ? p.heap_after_mb : p.heap_after;
+                var hm = p.heap_max_mb != null ? p.heap_max_mb : p.heap_max;
+                if (hb != null && ha != null) {
+                    heapHtml = escapeHtml(hb) + 'M &rarr; ' + escapeHtml(ha) + 'M';
+                    if (hm) heapHtml += ' / ' + escapeHtml(hm) + 'M';
+                    var reclaimed = (typeof hb === 'number' && typeof ha === 'number') ? (hb - ha) : null;
+                    if (reclaimed != null && reclaimed > 0) heapHtml += ' <span style="color:var(--healthy);">(&minus;' + reclaimed + 'M)</span>';
+                }
+                return '<tr>'
+                    + '<td class="mono" style="font-size:11px;white-space:nowrap;">' + escapeHtml(p.timestamp || '') + '</td>'
+                    + '<td class="mono" style="font-size:11px;">' + escapeHtml(p.type || '') + '</td>'
+                    + '<td class="mono ' + durCls + '">' + formatMs(pauseMs) + '</td>'
+                    + '<td class="mono" style="font-size:11px;">' + heapHtml + '</td>'
+                    + '</tr>';
+            });
+            paginateTable('gcBody', rows);
+        }
+
+        // -- JDBC Spy Analysis --
+        function renderJdbcSpyAnalysis(spy) {
+            var card = document.getElementById('jdbcSpyCard');
+            if (!spy || !spy.provided) {
+                card.style.display = 'none';
+                return;
+            }
+            card.style.display = 'block';
+            document.getElementById('spyQueryCountBadge').textContent = (spy.total_queries || 0) + ' queries';
+            document.getElementById('spyTotalQueries').textContent = formatNumber(spy.total_queries || 0);
+            document.getElementById('spySlowCount').textContent = formatNumber(spy.slow_queries_count || 0);
+            document.getElementById('spyAvgExec').textContent = spy.avg_exec_ms != null ? formatMs(spy.avg_exec_ms) : '--';
+            document.getElementById('spyMaxExec').textContent = spy.max_exec_ms != null ? formatMs(spy.max_exec_ms) : '--';
+            document.getElementById('spyInflightCount').textContent = formatNumber(spy.inflight_queries || 0);
+
+            // Queries by datasource
+            var byDs = spy.queries_by_datasource || {};
+            var dsKeys = Object.keys(byDs);
+            var dsEl = document.getElementById('spyByDatasource');
+            if (dsKeys.length > 0) {
+                dsEl.innerHTML = dsKeys.map(function(k) {
+                    return '<div style="background:rgba(8,18,35,0.5);border:1px solid var(--border-color);border-radius:8px;padding:12px 16px;min-width:140px;">'
+                        + '<div style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:var(--text-primary);">' + byDs[k] + '</div>'
+                        + '<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">' + escapeHtml(k) + '</div>'
+                        + '</div>';
+                }).join('');
+            } else {
+                dsEl.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">No datasource data</span>';
+            }
+
+            // Top SQL
+            var topSql = spy.top_sql || [];
+            var topSqlBody = document.getElementById('spyTopSqlBody');
+            if (topSql.length === 0) {
+                topSqlBody.innerHTML = '<tr><td colspan="2" class="rca-empty-state">No SQL data.</td></tr>';
+            } else {
+                var topSqlRows = topSql.map(function(s) {
+                    return '<tr>'
+                        + '<td style="font-family:var(--font-mono);font-size:11px;max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(s.sql || '') + '">' + escapeHtml(s.sql || '') + '</td>'
+                        + '<td class="mono" style="font-weight:600;">' + (s.count || 0) + '</td>'
+                        + '</tr>';
+                });
+                paginateTable('spyTopSqlBody', topSqlRows, 10);
+            }
+
+            // Slow queries
+            var slowQs = spy.slow_queries || [];
+            var slowBody = document.getElementById('spySlowBody');
+            if (slowQs.length === 0) {
+                slowBody.innerHTML = '<tr><td colspan="6" class="rca-empty-state">No slow queries detected.</td></tr>';
+            } else {
+                var rows = slowQs.map(function(q) {
+                    var execCls = timeClass(q.exec_time_ms || 0);
+                    var sql = (q.sql || '');
+                    if (sql.length > 80) sql = sql.substring(0, 80) + '...';
+                    var cnt = q.count || 1;
+                    var cntHtml = cnt > 1
+                        ? '<span class="mono" style="font-weight:600;">' + cnt + '&times;</span>'
+                        : '<span class="mono" style="color:var(--text-muted);">1&times;</span>';
+                    return '<tr>'
+                        + '<td style="font-family:var(--font-mono);font-size:11px;max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(q.sql || '') + '">' + escapeHtml(sql) + '</td>'
+                        + '<td class="mono" style="font-size:11px;">' + escapeHtml(q.datasource || '') + '</td>'
+                        + '<td class="mono" style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(q.thread || '') + '">' + escapeHtml(q.thread || '') + '</td>'
+                        + '<td class="mono ' + execCls + '">' + formatMs(q.exec_time_ms || 0) + '</td>'
+                        + '<td>' + cntHtml + '</td>'
+                        + '<td class="mono" style="font-size:11px;">' + escapeHtml(q.execute_type || '') + '</td>'
+                        + '</tr>';
+                });
+                paginateTable('spySlowBody', rows);
+            }
+        }
+
+        // -- Transaction Analysis --
+        function renderTxAnalysis(tx) {
+            var card = document.getElementById('txAnalysisCard');
+            if (!tx || !tx.provided) {
+                card.style.display = 'none';
+                return;
+            }
+            card.style.display = 'block';
+            document.getElementById('txCountBadge').textContent = (tx.total || 0) + ' transactions';
+            document.getElementById('txTotal').textContent = formatNumber(tx.total || 0);
+            document.getElementById('txCommitted').textContent = formatNumber(tx.committed || 0);
+            document.getElementById('txAborted').textContent = formatNumber(tx.aborted || 0);
+            document.getElementById('txInflight').textContent = formatNumber(tx.inflight || 0);
+            var abortRate = tx.abort_rate_percent || 0;
+            var abortEl = document.getElementById('txAbortRate');
+            abortEl.textContent = abortRate.toFixed(1) + '%';
+            abortEl.style.color = abortRate > 20 ? 'var(--critical)' : abortRate > 10 ? 'var(--warning)' : 'var(--text-primary)';
+            document.getElementById('txAvgDuration').textContent = tx.avg_duration_ms != null ? formatMs(tx.avg_duration_ms) : '--';
+            document.getElementById('txMaxDuration').textContent = tx.max_duration_ms != null ? formatMs(tx.max_duration_ms) : '--';
+
+            // Slow transactions
+            var slowTxs = tx.slow_transactions || [];
+            var slowBody = document.getElementById('txSlowBody');
+            if (slowTxs.length === 0) {
+                slowBody.innerHTML = '<tr><td colspan="6" class="rca-empty-state">No slow transactions.</td></tr>';
+            } else {
+                var rows = slowTxs.map(function(t) {
+                    return renderTxRow(t);
+                });
+                paginateTable('txSlowBody', rows);
+            }
+
+            // All transactions
+            var allTxs = tx.transactions || [];
+            document.getElementById('txAllCountBadge').textContent = allTxs.length > 0 ? '(' + allTxs.length + ')' : '';
+            var allBody = document.getElementById('txAllBody');
+            if (allTxs.length === 0) {
+                allBody.innerHTML = '<tr><td colspan="6" class="rca-empty-state">No transaction data.</td></tr>';
+            } else {
+                var rows = allTxs.map(function(t) {
+                    return renderTxRow(t);
+                });
+                paginateTable('txAllBody', rows);
+            }
+        }
+
+        function renderTxRow(t) {
+            var outcome = t.outcome || '';
+            var outcomeColor = outcome === 'COMMITTED' ? 'var(--healthy)' : outcome === 'ABORTED' ? 'var(--critical)' : 'var(--warning)';
+            var durCls = timeClass(t.duration_ms || 0);
+            var txId = (t.tx_id || '');
+            if (txId.length > 30) txId = '...' + txId.substring(txId.length - 25);
+            var qCount = t.query_count || 0;
+            return '<tr>'
+                + '<td class="mono" style="font-size:11px;" title="' + escapeHtml(t.tx_id || '') + '">' + escapeHtml(txId) + '</td>'
+                + '<td class="mono" style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(t.thread || '') + '">' + escapeHtml(t.thread || '') + '</td>'
+                + '<td style="font-size:11px;font-family:var(--font-mono);font-weight:600;color:' + outcomeColor + ';">' + escapeHtml(outcome) + '</td>'
+                + '<td class="mono ' + durCls + '">' + formatMs(t.duration_ms || 0) + '</td>'
+                + '<td class="mono">' + qCount + '</td>'
+                + '<td class="mono" style="font-size:11px;white-space:nowrap;">' + escapeHtml(t.begin_time || '') + '</td>'
+                + '</tr>';
+        }
+
+        // -- Timeline --
+        var TIMELINE_DOT_COLORS = {
+            slow_request: 'var(--warning)', error: 'var(--critical)',
+            gc_pause: '#aa44ff', blocked: 'var(--critical)', info: 'var(--accent)'
+        };
+        var TIMELINE_TYPE_COLORS = {
+            slow_request: 'rgba(255,170,0,0.2)', error: 'rgba(255,34,68,0.2)',
+            gc_pause: 'rgba(170,68,255,0.2)', blocked: 'rgba(255,34,68,0.2)', info: 'rgba(0,212,255,0.2)'
+        };
+
+        // -- AI Analysis --
+        var aiResultText = '';
+
+        async function runAiAnalysis() {
+            var btn = document.getElementById('btnAiAnalyze');
+            var panel = document.getElementById('aiRcaPanel');
+            var content = document.getElementById('aiRcaContent');
+            var copyBtn = document.getElementById('btnCopyAi');
+
+            btn.disabled = true;
+            btn.innerHTML = '&#9733; Analyzing...';
+            panel.style.display = 'block';
+            content.innerHTML = '<div class="ai-shimmer">'
+                + '<div class="ai-shimmer-label"><span class="ai-shimmer-pulse"></span> Analyzing log data with AI...</div>'
+                + '<div class="ai-shimmer-bar"></div>'
+                + '<div class="ai-shimmer-bar"></div>'
+                + '<div class="ai-shimmer-bar"></div>'
+                + '<div class="ai-shimmer-bar"></div>'
+                + '<div class="ai-shimmer-bar"></div>'
+                + '<div class="ai-shimmer-bar"></div>'
+                + '</div>';
+            copyBtn.style.display = 'none';
+
+            var payload = {};
+            if (rcaFiles.thread_dump) payload.thread_dump = rcaFiles.thread_dump;
+            if (rcaFiles.server_log) payload.server_log = rcaFiles.server_log;
+            if (rcaFiles.access_log) payload.access_log = rcaFiles.access_log;
+            if (rcaFiles.gc_log) payload.gc_log = rcaFiles.gc_log;
+
+            try {
+                var resp = await fetch(MCP_API + '/rca/ai-analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (resp.status === 429) {
+                    var msg = await resp.text();
+                    throw new Error(msg || 'AI rate limit reached. Please wait and try again.');
+                }
+                if (!resp.ok) {
+                    var errText = await resp.text();
+                    throw new Error(errText || 'HTTP ' + resp.status);
+                }
+                var text = await resp.text();
+                aiResultText = text;
+                content.innerHTML = renderAiText(text);
+                copyBtn.style.display = 'inline-block';
+                showToast('AI analysis complete', 'success');
+            } catch (err) {
+                content.innerHTML = '<div class="rca-empty-state"><div class="rca-empty-icon" style="color:var(--critical);">&#9888;</div><div class="rca-empty-text" style="color:var(--critical);">' + escapeHtml(err.message) + '</div></div>';
+                aiResultText = '';
+                showToast('AI analysis failed: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '&#9733; AI Analysis';
+                updateFileCount();
+            }
+        }
+
+        function copyAiResult() {
+            if (!aiResultText) return;
+            navigator.clipboard.writeText(aiResultText).then(function() {
+                showToast('Copied to clipboard', 'success');
+            }).catch(function() {
+                showToast('Failed to copy', 'error');
+            });
+        }
+
+        function renderTimeline(events) {
+            document.getElementById('timelineBadge').textContent = events.length + ' events';
+            var el = document.getElementById('timelineBody');
+            if (events.length === 0) {
+                el.innerHTML = '<div class="rca-empty-state"><div class="rca-empty-icon">&#9201;</div><div class="rca-empty-text">No timeline events to display.</div></div>';
+                return;
+            }
+            el.innerHTML = '<div class="timeline-container">' + events.slice(0, 300).map(function(ev) {
+                var dotColor = TIMELINE_DOT_COLORS[ev.type] || 'var(--text-muted)';
+                var typeBg = TIMELINE_TYPE_COLORS[ev.type] || 'rgba(139,148,158,0.15)';
+                var typeLabel = (ev.type || '').replace('_', ' ');
+                return '<div class="timeline-event">'
+                    + '<span class="timeline-dot ' + escapeHtml(ev.type || 'info') + '" style="background:' + dotColor + ';"></span>'
+                    + '<span class="timeline-ts">' + escapeHtml(ev.timestamp || '') + '</span>'
+                    + '<span class="timeline-detail">'
+                    + '<span class="timeline-type-badge" style="background:' + typeBg + ';color:' + dotColor + ';">' + escapeHtml(typeLabel) + '</span>'
+                    + escapeHtml(ev.detail || '')
+                    + '</span>'
+                    + '</div>';
+            }).join('') + '</div>';
+        }
+    </script>
+</body>
+</html>

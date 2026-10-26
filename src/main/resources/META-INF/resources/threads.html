@@ -1,0 +1,1651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Threads - JBoss Monitor</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .thread-entry {
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            margin-bottom: 8px;
+            overflow: hidden;
+            backdrop-filter: blur(4px);
+            transition: border-color 0.2s;
+        }
+        .thread-entry:hover {
+            border-color: rgba(0, 212, 255, 0.2);
+        }
+
+        .thread-entry-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s;
+        }
+
+        .thread-entry-header:hover {
+            background: rgba(0, 212, 255, 0.03);
+        }
+
+        .thread-entry-header .thread-name {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 500;
+            flex: 1;
+            margin-right: 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .thread-entry-header .thread-state-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            flex-shrink: 0;
+            letter-spacing: 0.5px;
+            border: 1px solid transparent;
+        }
+
+        .thread-state-badge.runnable {
+            background: rgba(0, 255, 136, 0.06);
+            color: var(--healthy);
+            border-color: rgba(0, 255, 136, 0.15);
+        }
+
+        .thread-state-badge.blocked {
+            background: rgba(255, 34, 68, 0.06);
+            color: var(--critical);
+            border-color: rgba(255, 34, 68, 0.15);
+        }
+
+        .thread-state-badge.waiting {
+            background: rgba(255, 170, 0, 0.06);
+            color: var(--warning);
+            border-color: rgba(255, 170, 0, 0.15);
+        }
+
+        .thread-state-badge.timed-waiting {
+            background: rgba(0, 212, 255, 0.06);
+            color: var(--accent);
+            border-color: rgba(0, 212, 255, 0.15);
+        }
+
+        .thread-state-badge.new,
+        .thread-state-badge.terminated {
+            background: rgba(62, 96, 128, 0.08);
+            color: var(--text-muted);
+            border-color: rgba(62, 96, 128, 0.15);
+        }
+
+        .thread-entry-header .chevron {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-left: 12px;
+            transition: transform 0.2s;
+            flex-shrink: 0;
+        }
+
+        .thread-entry-header.expanded .chevron {
+            transform: rotate(90deg);
+            color: var(--accent);
+        }
+
+        .thread-stack {
+            display: none;
+            padding: 12px 16px;
+            background: rgba(0, 0, 0, 0.3);
+            border-top: 1px solid var(--border-color);
+        }
+
+        .thread-stack.visible {
+            display: block;
+        }
+
+        .thread-stack pre {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .thread-stack .frame-class {
+            color: var(--accent);
+        }
+
+        .thread-stack .frame-method {
+            color: var(--healthy);
+        }
+
+        .thread-stack .frame-line {
+            color: var(--text-muted);
+        }
+
+        .thread-stack .more-frames {
+            margin-top: 8px;
+            font-size: 11px;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-family: var(--font-mono);
+        }
+
+        .thread-stack .more-frames:hover {
+            color: var(--accent);
+            text-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+        }
+
+        .thread-dump-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .thread-dump-section {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .capture-progress {
+            margin-top: 16px;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: var(--radius);
+            border: 1px solid var(--border-color);
+            backdrop-filter: blur(4px);
+        }
+        .capture-progress-bar {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 3px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        .capture-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, rgba(0, 212, 255, 0.6), var(--accent));
+            border-radius: 3px;
+            transition: width 0.3s ease;
+            box-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+        }
+        .capture-status {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+        }
+        .capture-result {
+            margin-top: 12px;
+            padding: 14px;
+            border-radius: var(--radius);
+            font-size: 13px;
+        }
+        .capture-result.success {
+            background: rgba(0, 255, 136, 0.04);
+            border: 1px solid rgba(0, 255, 136, 0.2);
+            color: var(--healthy);
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.05);
+        }
+        .capture-result.error {
+            background: rgba(255, 34, 68, 0.04);
+            border: 1px solid rgba(255, 34, 68, 0.2);
+            color: var(--critical);
+            box-shadow: 0 0 15px rgba(255, 34, 68, 0.05);
+        }
+        .capture-file-list {
+            margin-top: 8px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+            line-height: 1.8;
+        }
+
+        .thread-filter {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: rgba(0, 0, 0, 0.3);
+            color: var(--text-primary);
+            font-size: 12px;
+            font-family: var(--font-mono);
+            outline: none;
+            width: 260px;
+            transition: all 0.2s;
+        }
+
+        .thread-filter:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 12px rgba(0, 212, 255, 0.1);
+        }
+
+        .thread-filter::placeholder {
+            color: var(--text-muted);
+        }
+
+        .chart-with-legend {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .chart-doughnut-wrapper {
+            position: relative;
+            width: 220px;
+            height: 220px;
+            flex-shrink: 0;
+        }
+
+        .chart-legend-side {
+            flex: 1;
+        }
+
+        .state-pills-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .state-pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: var(--font-mono);
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            backdrop-filter: blur(4px);
+        }
+
+        .state-pill .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .state-pill .pill-count {
+            font-weight: 700;
+            margin-left: 4px;
+        }
+
+        .deadlock-zero {
+            color: var(--healthy);
+            text-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
+        }
+
+        .deadlock-nonzero {
+            color: var(--critical);
+            text-shadow: 0 0 8px rgba(255, 34, 68, 0.3);
+        }
+
+        .busy-category-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            letter-spacing: 0.3px;
+            border: 1px solid transparent;
+        }
+        .cat-http { background: rgba(0, 212, 255, 0.06); color: var(--accent); border-color: rgba(0, 212, 255, 0.15); }
+        .cat-io { background: rgba(170, 68, 255, 0.06); color: #aa44ff; border-color: rgba(170, 68, 255, 0.15); }
+        .cat-task { background: rgba(45, 212, 191, 0.06); color: #2dd4bf; border-color: rgba(45, 212, 191, 0.15); }
+        .cat-db { background: rgba(255, 170, 0, 0.06); color: var(--warning); border-color: rgba(255, 170, 0, 0.15); }
+        .cat-jpa { background: rgba(255, 170, 0, 0.06); color: var(--warning); border-color: rgba(255, 170, 0, 0.15); }
+        .cat-ejb { background: rgba(125, 168, 204, 0.06); color: var(--text-secondary); border-color: rgba(125, 168, 204, 0.15); }
+        .cat-tx { background: rgba(255, 34, 68, 0.06); color: var(--critical); border-color: rgba(255, 34, 68, 0.15); }
+        .cat-jms { background: rgba(0, 255, 136, 0.06); color: var(--healthy); border-color: rgba(0, 255, 136, 0.15); }
+        .cat-gc { background: rgba(62, 96, 128, 0.08); color: var(--text-muted); border-color: rgba(62, 96, 128, 0.15); }
+        .cat-deadlock { background: rgba(255, 34, 68, 0.1); color: #ff2244; border-color: rgba(255, 34, 68, 0.25); font-weight: 700; }
+        .cat-other { background: rgba(62, 96, 128, 0.05); color: var(--text-muted); border-color: rgba(62, 96, 128, 0.1); }
+        .busy-cat-summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .thread-link {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+            text-underline-offset: 3px;
+        }
+        .thread-link:hover {
+            text-decoration-style: solid;
+            text-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-box {
+            background: rgba(8, 18, 35, 0.95);
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            border-radius: var(--radius);
+            width: 720px;
+            max-width: 92vw;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 48px rgba(0, 0, 0, 0.6), 0 0 30px rgba(0, 212, 255, 0.05);
+            backdrop-filter: blur(12px);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .modal-header h3 {
+            margin: 0; font-size: 14px; color: var(--text-primary);
+            font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 22px;
+            cursor: pointer;
+            padding: 0 4px;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+        .modal-close:hover { color: var(--accent); }
+        .modal-body {
+            padding: 16px 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .thread-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 8px 16px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+        .thread-meta-item { display: flex; gap: 6px; }
+        .thread-meta-item .meta-label { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .thread-meta-item .meta-value { color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; }
+        .stack-trace-box {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 14px 16px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .stack-frame-app { color: var(--accent); }
+        .stack-frame-jboss { color: #ffaa00; }
+
+        .th-tab-bar {
+            display: flex; gap: 0; border-bottom: 1px solid var(--border-color);
+            margin: -20px -24px 20px -24px; padding: 0 24px;
+        }
+        .th-tab-btn {
+            padding: 12px 20px; background: none; border: none; color: var(--text-muted);
+            font-size: 12px; font-weight: 600; cursor: pointer; position: relative;
+            transition: color 0.2s; white-space: nowrap; font-family: var(--font-mono);
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .th-tab-btn:hover { color: var(--text-secondary); }
+        .th-tab-btn.active { color: var(--accent); }
+        .th-tab-btn.active::after {
+            content: ''; position: absolute; bottom: -1px; left: 0; right: 0;
+            height: 2px; background: var(--accent); border-radius: 2px 2px 0 0;
+            box-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+        }
+        .th-tab-btn .th-tab-count {
+            display: inline-block; background: rgba(0, 212, 255, 0.08); color: var(--accent);
+            font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 3px;
+            margin-left: 6px; font-family: var(--font-mono);
+            border: 1px solid rgba(0, 212, 255, 0.15);
+        }
+        .th-tab-panel { display: none; }
+        .th-tab-panel.active { display: block; }
+        .duration-long { color: var(--critical); font-weight: 600; text-shadow: 0 0 6px rgba(255, 34, 68, 0.3); }
+        .duration-medium { color: var(--warning); font-weight: 600; text-shadow: 0 0 6px rgba(255, 170, 0, 0.3); }
+        .duration-short { color: var(--healthy); }
+
+        @media (max-width: 900px) {
+            .chart-with-legend {
+                flex-direction: column;
+            }
+
+            .chart-doughnut-wrapper {
+                width: 180px;
+                height: 180px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar"></div>
+
+    <div class="main-content">
+        <div id="pageHeader"></div>
+
+        <div class="content">
+            <!-- AI Analysis Panel -->
+            <div class="ai-panel">
+                <div class="ai-header">&#9733; AI Thread Analysis</div>
+                <div class="ai-content" id="aiAnalysis">Click the button below to run AI thread analysis.</div>
+                <div style="margin-top: 12px;">
+                    <button class="btn btn-primary" onclick="loadAIAnalysis()">&#9733; Analyze Threads</button>
+                </div>
+            </div>
+
+            <!-- Stat Cards -->
+            <div class="stats-row" id="statCards">
+                <div class="stat-card">
+                    <div class="stat-label">Current Threads</div>
+                    <div class="stat-value" id="statCurrentThreads">--</div>
+                    <div class="stat-sub">Live thread count</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Peak Threads</div>
+                    <div class="stat-value" id="statPeakThreads">--</div>
+                    <div class="stat-sub">Maximum since startup</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Daemon Threads</div>
+                    <div class="stat-value" id="statDaemonThreads">--</div>
+                    <div class="stat-sub">Background threads</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Deadlocks</div>
+                    <div class="stat-value deadlock-zero" id="statDeadlocks">0</div>
+                    <div class="stat-sub">Detected deadlocks</div>
+                </div>
+            </div>
+
+            <!-- Thread State Distribution -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Thread State Distribution</h3>
+                </div>
+                <div class="card-body">
+                    <div class="chart-with-legend">
+                        <div class="chart-doughnut-wrapper">
+                            <canvas id="threadStateChart"></canvas>
+                        </div>
+                        <div class="chart-legend-side" id="threadStateLegend">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                    <div class="state-pills-row" id="threadStatePills">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Thread Details -->
+            <div class="card" id="threadHistoryCard">
+                <div class="card-header">
+                    <h3>Thread Details</h3>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:11px;color:var(--text-muted);">Snapshots every 30s</span>
+                        <span class="badge badge-info" id="threadHistoryBadge">0 snapshots</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container" style="height:200px;margin-bottom:20px;">
+                        <canvas id="threadHistoryChart"></canvas>
+                    </div>
+
+                    <div class="th-tab-bar">
+                        <button class="th-tab-btn active" onclick="switchThreadHistoryTab('allTracked', this)">All Tracked Threads <span class="th-tab-count" id="allTrackedCount">0</span></button>
+                        <button class="th-tab-btn" onclick="switchThreadHistoryTab('longRunning', this)">Long Running <span class="th-tab-count" id="longRunningCount">0</span></button>
+                        <button class="th-tab-btn" onclick="switchThreadHistoryTab('deadlocks', this)">Deadlocks <span class="th-tab-count" id="deadlockCount" style="background:rgba(255,34,68,0.12);color:var(--critical);border-color:rgba(255,34,68,0.2);">0</span></button>
+                        <button class="th-tab-btn" onclick="switchThreadHistoryTab('blocked', this)">Blocked Events <span class="th-tab-count" id="blockedCount">0</span></button>
+                    </div>
+
+                    <div class="th-tab-panel active" id="tabAllTracked">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+                            <select id="historyStateFilter" style="padding:4px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;font-family:var(--font-mono);" onchange="filterTrackedThreads()">
+                                <option value="">All States</option>
+                                <option value="RUNNABLE">RUNNABLE</option>
+                                <option value="BLOCKED">BLOCKED</option>
+                                <option value="WAITING">WAITING</option>
+                                <option value="TIMED_WAITING">TIMED_WAITING</option>
+                            </select>
+                            <select id="historyCatFilter" style="padding:4px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;font-family:var(--font-mono);" onchange="filterTrackedThreads()">
+                                <option value="">All Categories</option>
+                            </select>
+                            <input type="text" id="historyNameSearch" placeholder="Search thread name..." style="padding:4px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;width:160px;font-family:var(--font-mono);" oninput="filterTrackedThreads()">
+                            <span class="badge badge-info" id="filteredTrackedCount">0</span>
+                        </div>
+                        <div class="busy-cat-summary" id="trackedCatSummary"></div>
+                        <div id="allTrackedBody" style="max-height:500px;overflow-y:auto;">
+                            <p style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">Collecting thread history... snapshots are taken every 30 seconds. All tracked threads will appear here.</p>
+                        </div>
+                    </div>
+
+                    <div class="th-tab-panel" id="tabLongRunning">
+                        <div id="longRunningBody" style="max-height:400px;overflow-y:auto;">
+                            <p style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">Collecting thread history... Long-running threads (RUNNABLE/BLOCKED &gt; 30s) will appear here.</p>
+                        </div>
+                    </div>
+
+                    <div class="th-tab-panel" id="tabDeadlocks">
+                        <div id="deadlockBody" style="max-height:400px;overflow-y:auto;">
+                            <p style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">No deadlocks detected. Deadlocked threads will appear here when JBoss detects a deadlock cycle.</p>
+                        </div>
+                        <div style="margin-top:20px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                                <h4 style="font-size:13px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin:0;">Deadlock Events <span class="th-tab-count" id="deadlockEventCount" style="font-size:10px;">0</span></h4>
+                                <button class="btn" style="font-size:11px;padding:4px 10px;" onclick="viewEventLog()">View Event Log File</button>
+                            </div>
+                            <div id="eventLogPath" style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:8px;display:none;"></div>
+                            <div id="deadlockEventsBody" style="max-height:300px;overflow-y:auto;">
+                                <p style="text-align:center;padding:16px;color:var(--text-muted);font-size:12px;">No deadlock events recorded yet.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="th-tab-panel" id="tabBlocked">
+                        <div id="blockedBody" style="max-height:400px;overflow-y:auto;">
+                            <p style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">Blocked thread events will appear here as they are detected.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Thread Pools -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Thread Pools</h3>
+                </div>
+                <div class="card-body no-padding">
+                    <table class="data-table" id="threadPoolsTable">
+                        <thead id="threadPoolsTableHead">
+                            <tr>
+                                <th>Pool Name</th>
+                                <th>Type</th>
+                                <th>Max Threads</th>
+                                <th>Active</th>
+                                <th>Queue Size</th>
+                                <th>Completed Tasks</th>
+                                <th>Rejected</th>
+                            </tr>
+                        </thead>
+                        <tbody id="threadPoolsBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Undertow Listener Stats -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Undertow Listener Stats</h3>
+                </div>
+                <div class="card-body no-padding">
+                    <table class="data-table" id="undertowTable">
+                        <thead id="undertowTableHead">
+                            <tr>
+                                <th>Listener</th>
+                                <th>Request Count</th>
+                                <th>Error Count</th>
+                                <th>Avg Processing Time</th>
+                                <th>Max Processing Time</th>
+                                <th>Bytes Sent</th>
+                                <th>Bytes Received</th>
+                            </tr>
+                        </thead>
+                        <tbody id="undertowBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Thread Stack Trace Modal -->
+            <div class="modal-overlay" id="threadModal">
+                <div class="modal-box">
+                    <div class="modal-header">
+                        <h3 id="threadModalTitle">Thread Stack Trace</h3>
+                        <button class="modal-close" onclick="closeThreadModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" id="threadModalBody">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Thread Dump -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Thread Dump</h3>
+                    <div class="thread-dump-controls">
+                        <input type="text" class="thread-filter" id="threadFilter" placeholder="Filter threads by name...">
+                        <button class="btn btn-primary" id="btnTakeDump" onclick="takeThreadDump()">Take Thread Dump</button>
+                    </div>
+                </div>
+                <div class="card-body" id="threadDumpCard">
+                    <div class="empty-state" id="threadDumpEmpty">
+                        <div class="empty-icon">&#9776;</div>
+                        <p>Click "Take Thread Dump" to capture current thread states</p>
+                    </div>
+                    <div class="thread-dump-section" id="threadDumpSection" style="display: none;">
+                        <div id="threadDumpList">
+                            <!-- Populated by JS on button click -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Capture Thread Dumps to Disk -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Capture Thread Dumps to Disk</h3>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <label style="font-size: 12px; color: var(--text-secondary);">Count:</label>
+                        <input type="number" id="dumpCount" value="10" min="1" max="30" style="width: 55px; padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-size: 12px;">
+                        <label style="font-size: 12px; color: var(--text-secondary);">Interval (s):</label>
+                        <input type="number" id="dumpInterval" value="20" min="5" max="60" style="width: 55px; padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-size: 12px;">
+                        <button class="btn btn-primary" id="btnCaptureDumps" onclick="captureThreadDumps()">&#9660; Capture Thread Dumps</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+                        Captures multiple thread dumps at regular intervals and saves them as a ZIP file in <code style="color: var(--accent);">$JBOSS_HOME/thread_dump/</code>.
+                        Useful for diagnosing intermittent thread issues, deadlocks, and performance bottlenecks.
+                    </p>
+                    <div id="captureProgress" style="display: none;"></div>
+                    <div id="captureResult"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+        // -- Initialization --
+        document.getElementById('sidebar').innerHTML = renderSidebar();
+        document.getElementById('pageHeader').innerHTML = renderPageHeader('Threads', 'Thread counts, pools, deadlocks, and thread dump analysis');
+        setActiveNav();
+
+        // -- Chart.js defaults for dark theme --
+        Chart.defaults.color = '#8b949e';
+        Chart.defaults.borderColor = '#2d3f52';
+
+        // -- Thread state colors --
+        const STATE_COLORS = {
+            RUNNABLE: '#00ff88',
+            BLOCKED: '#ff2244',
+            WAITING: '#ffaa00',
+            TIMED_WAITING: '#00d4ff',
+            NEW: '#6e7681',
+            TERMINATED: '#484f58'
+        };
+
+        const STATE_CSS = {
+            RUNNABLE: 'runnable',
+            BLOCKED: 'blocked',
+            WAITING: 'waiting',
+            TIMED_WAITING: 'timed-waiting',
+            NEW: 'new',
+            TERMINATED: 'terminated'
+        };
+
+        // -- Doughnut chart --
+        let threadStateChart;
+
+        function initOrUpdateThreadStateChart(stateSummary) {
+            const labels = Object.keys(stateSummary);
+            const data = Object.values(stateSummary);
+            const colors = labels.map(s => STATE_COLORS[s] || '#6e7681');
+
+            if (threadStateChart) {
+                threadStateChart.data.labels = labels.map(s => s.replace('_', ' '));
+                threadStateChart.data.datasets[0].data = data;
+                threadStateChart.data.datasets[0].backgroundColor = colors;
+                threadStateChart.update();
+            } else {
+                const ctx = document.getElementById('threadStateChart').getContext('2d');
+                threadStateChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels.map(s => s.replace('_', ' ')),
+                        datasets: [{
+                            data: data,
+                            backgroundColor: colors,
+                            borderColor: '#1e2a3a',
+                            borderWidth: 2,
+                            hoverBorderColor: '#e6edf3',
+                            hoverBorderWidth: 2,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        cutout: '65%',
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: '#1a2332',
+                                titleColor: '#e6edf3',
+                                bodyColor: '#8b949e',
+                                borderColor: '#2d3f52',
+                                borderWidth: 1,
+                                padding: 12,
+                                callbacks: {
+                                    label: function(context) {
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const pct = ((context.parsed / total) * 100).toFixed(1);
+                                        return ` ${context.label}: ${context.parsed} (${pct}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            renderThreadStateLegend(labels, data, colors);
+            renderThreadStatePills(labels, data, colors);
+        }
+
+        function renderThreadStateLegend(labels, data, colors) {
+            const total = data.reduce((a, b) => a + b, 0);
+            const el = document.getElementById('threadStateLegend');
+            el.innerHTML = labels.map((label, i) => {
+                const pct = ((data[i] / total) * 100).toFixed(1);
+                return `
+                    <div class="metric-row">
+                        <span class="metric-label" style="display:flex;align-items:center;gap:8px;">
+                            <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${colors[i]};flex-shrink:0;"></span>
+                            ${label.replace('_', ' ')}
+                        </span>
+                        <span class="metric-value">${data[i]} <span class="stat-unit">(${pct}%)</span></span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderThreadStatePills(labels, data, colors) {
+            const el = document.getElementById('threadStatePills');
+            el.innerHTML = labels.map((label, i) => `
+                <div class="state-pill">
+                    <span class="dot" style="background:${colors[i]};"></span>
+                    ${label.replace('_', ' ')}
+                    <span class="pill-count">${data[i]}</span>
+                </div>
+            `).join('');
+        }
+
+        // -- Thread pools table --
+        function renderThreadPools(pools) {
+            const nonUndertow = pools.filter(p => p.type !== 'undertow-listener');
+            const tbody = document.getElementById('threadPoolsBody');
+            var showServer = nonUndertow.some(function(p) { return p.server_name != null; });
+            var thead = document.getElementById('threadPoolsTableHead');
+            var colCount = showServer ? 8 : 7;
+            thead.innerHTML = '<tr>' + (showServer ? '<th>Server</th>' : '')
+                + '<th>Pool Name</th><th>Type</th><th>Max Threads</th><th>Active</th>'
+                + '<th>Queue Size</th><th>Completed Tasks</th><th>Rejected</th></tr>';
+            if (nonUndertow.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center;color:var(--text-muted);">No thread pool data available</td></tr>';
+                return;
+            }
+            var rows = nonUndertow.map(pool => {
+                const maxThreads = pool.task_max_threads || pool.max_threads || pool.io_threads || null;
+                const active = pool.active_count != null ? pool.active_count : null;
+                const queueSize = pool.queue_size != null ? pool.queue_size : null;
+                const completed = pool.completed_task_count != null ? pool.completed_task_count : null;
+                const rejected = pool.rejected_count != null ? pool.rejected_count : null;
+                const utilizationPct = (maxThreads && active != null) ? ((active / maxThreads) * 100).toFixed(0) : null;
+                var serverCell = showServer ? '<td><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(pool.server_name || '-') + '</span></td>' : '';
+                return `
+                    <tr>
+                        ${serverCell}
+                        <td><span class="mono">${escapeHtml(pool.pool_name)}</span></td>
+                        <td>${escapeHtml(pool.type)}</td>
+                        <td class="mono">${maxThreads != null ? formatNumber(maxThreads) : '-'}</td>
+                        <td>
+                            ${active != null ? `
+                                <span class="mono">${formatNumber(active)}</span>
+                                ${utilizationPct != null ? `<span class="stat-unit">(${utilizationPct}%)</span>${createProgressBar(parseFloat(utilizationPct))}` : ''}
+                            ` : '<span class="mono">-</span>'}
+                        </td>
+                        <td class="mono">${queueSize != null ? formatNumber(queueSize) : '-'}</td>
+                        <td class="mono">${completed != null ? formatNumber(completed) : '-'}</td>
+                        <td class="mono ${rejected > 0 ? 'critical' : ''}" style="${rejected > 0 ? 'color:var(--critical);font-weight:600;' : ''}">${rejected != null ? formatNumber(rejected) : '-'}</td>
+                    </tr>
+                `;
+            });
+            paginateTable('threadPoolsBody', rows);
+        }
+
+        // -- Undertow listener table --
+        function renderUndertowStats(pools) {
+            const undertow = pools.filter(p => p.type === 'undertow-listener');
+            const tbody = document.getElementById('undertowBody');
+            var showServer = undertow.some(function(p) { return p.server_name != null; });
+            var thead = document.getElementById('undertowTableHead');
+            var colCount = showServer ? 8 : 7;
+            thead.innerHTML = '<tr>' + (showServer ? '<th>Server</th>' : '')
+                + '<th>Listener</th><th>Request Count</th><th>Error Count</th>'
+                + '<th>Avg Processing Time</th><th>Max Processing Time</th>'
+                + '<th>Bytes Sent</th><th>Bytes Received</th></tr>';
+            if (undertow.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center;color:var(--text-muted);">No undertow listener data available</td></tr>';
+                return;
+            }
+            var rows = undertow.map(function(listener) {
+                var serverCell = showServer ? '<td><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(listener.server_name || '-') + '</span></td>' : '';
+                return '<tr>' + serverCell
+                    + '<td><span class="mono">' + escapeHtml(listener.pool_name) + '</span></td>'
+                    + '<td class="mono">' + (listener.request_count != null ? formatNumber(listener.request_count) : '-') + '</td>'
+                    + '<td class="mono" style="' + (listener.error_count > 0 ? 'color:var(--warning);' : '') + '">' + (listener.error_count != null ? formatNumber(listener.error_count) : '-') + '</td>'
+                    + '<td class="mono">' + (listener.avg_processing_time_ms != null ? formatMs(listener.avg_processing_time_ms) : '-') + '</td>'
+                    + '<td class="mono">' + (listener.max_processing_time_ms != null ? formatMs(listener.max_processing_time_ms) : '-') + '</td>'
+                    + '<td class="mono">' + (listener.bytes_sent != null ? formatBytes(listener.bytes_sent) : '-') + '</td>'
+                    + '<td class="mono">' + (listener.bytes_received != null ? formatBytes(listener.bytes_received) : '-') + '</td>'
+                    + '</tr>';
+            });
+            paginateTable('undertowBody', rows);
+        }
+
+        // -- Stat cards --
+        function updateStatCards(threadInfo) {
+            document.getElementById('statCurrentThreads').textContent = formatNumber(threadInfo.thread_count);
+            document.getElementById('statPeakThreads').textContent = formatNumber(threadInfo.peak_thread_count);
+            document.getElementById('statDaemonThreads').textContent = formatNumber(threadInfo.daemon_thread_count);
+            // Deadlock stat is updated from /api/thread-history (loadThreadHistory) which uses JBoss management API
+        }
+
+        function updateDeadlockStat(count) {
+            const el = document.getElementById('statDeadlocks');
+            el.textContent = count;
+            if (count > 0) {
+                el.className = 'stat-value deadlock-nonzero';
+            } else {
+                el.className = 'stat-value deadlock-zero';
+            }
+        }
+
+        // -- Thread dump --
+        async function takeThreadDump() {
+            const btn = document.getElementById('btnTakeDump');
+            btn.disabled = true;
+            btn.innerHTML = 'Capturing...';
+
+            try {
+                const data = await fetchData('/thread-dump?limit=500');
+
+                if (data.error) {
+                    var errMsg = data.error;
+                    if (data.methods_tried && data.methods_tried.length > 0) {
+                        errMsg += '\n\nMethods tried:\n' + data.methods_tried.join('\n');
+                    }
+                    document.getElementById('threadDumpEmpty').innerHTML =
+                        '<div class="empty-icon" style="color:var(--critical);">&#9888;</div>'
+                        + '<p style="color:var(--critical);">Failed to capture thread dump</p>'
+                        + '<pre style="font-size:11px;color:var(--text-muted);text-align:left;max-width:600px;margin:8px auto;white-space:pre-wrap;word-break:break-word;">' + escapeHtml(errMsg) + '</pre>';
+                    showToast('Thread dump failed: ' + data.error, 'error');
+                    return;
+                }
+
+                document.getElementById('threadDumpEmpty').style.display = 'none';
+                document.getElementById('threadDumpSection').style.display = 'block';
+
+                const threads = (data.threads || []).map(t => ({
+                    name: t.thread_name,
+                    state: t.thread_state,
+                    stack: t.stack_trace || [],
+                    server_name: t.server_name || null
+                }));
+                renderThreadDump(threads);
+                var methodInfo = data.method ? ' via ' + data.method : '';
+                var pidInfo = data.pid ? ' (PID: ' + data.pid + ')' : '';
+                showToast('Thread dump captured: ' + data.total_threads + ' threads' + methodInfo + pidInfo, 'success');
+            } catch (err) {
+                document.getElementById('threadDumpEmpty').innerHTML =
+                    '<div class="empty-icon" style="color:var(--critical);">&#9888;</div>'
+                    + '<p style="color:var(--critical);">Failed to capture thread dump</p>'
+                    + '<p style="font-size:12px;color:var(--text-muted);">' + escapeHtml(err.message) + '</p>';
+                showToast('Failed to capture thread dump: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Take Thread Dump';
+            }
+        }
+
+        async function captureThreadDumps() {
+            const btn = document.getElementById('btnCaptureDumps');
+            const progressEl = document.getElementById('captureProgress');
+            const resultEl = document.getElementById('captureResult');
+            const count = parseInt(document.getElementById('dumpCount').value) || 10;
+            const interval = parseInt(document.getElementById('dumpInterval').value) || 15;
+
+            btn.disabled = true;
+            btn.innerHTML = '&#8987; Capturing...';
+            resultEl.innerHTML = '';
+
+            const totalTime = (count - 1) * interval;
+            progressEl.style.display = 'block';
+            progressEl.innerHTML = '<div class="capture-progress-bar"><div class="capture-progress-fill" id="captureFill" style="width: 0%;"></div></div>'
+                + '<div class="capture-status" id="captureStatus">Starting capture of ' + count + ' thread dumps at ' + interval + 's intervals (~' + totalTime + 's total)...</div>';
+
+            const fill = document.getElementById('captureFill');
+            const status = document.getElementById('captureStatus');
+            let elapsed = 0;
+            const timer = setInterval(function() {
+                elapsed++;
+                var pct = Math.min(Math.round((elapsed / totalTime) * 100), 99);
+                fill.style.width = pct + '%';
+                var dumpNum = Math.min(Math.floor(elapsed / interval) + 1, count);
+                status.textContent = 'Capturing dump ' + dumpNum + ' of ' + count + '... (' + elapsed + 's / ~' + totalTime + 's)';
+            }, 1000);
+
+            try {
+                const resp = await fetch(MCP_API + '/capture-thread-dumps', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ count: count, interval: interval }),
+                });
+                const data = await resp.json();
+                clearInterval(timer);
+                fill.style.width = '100%';
+
+                if (data.error) {
+                    status.textContent = 'Failed';
+                    var errHtml = '<div class="capture-result error">'
+                        + '<div style="font-weight:600;">&#10007; ' + escapeHtml(data.error) + '</div>';
+                    if (data.suggestion) errHtml += '<div style="font-size:12px;margin-top:6px;color:var(--text-secondary);">' + escapeHtml(data.suggestion) + '</div>';
+                    errHtml += '</div>';
+                    resultEl.innerHTML = errHtml;
+                } else {
+                    status.textContent = 'Complete!';
+                    var fileList = (data.dumps || []).map(function(d) {
+                        if (d.error) return '<div style="color:var(--critical);">Dump #' + d.index + ' (' + (d.timestamp || '') + '): ' + escapeHtml(d.error) + '</div>';
+                        return '<div>Dump #' + d.index + ' — ' + d.thread_count + ' threads — ' + escapeHtml(d.filename) + ' (' + (d.timestamp || '') + ')</div>';
+                    }).join('');
+
+                    var successCount = data.successful || 0;
+                    var failCount = data.failed || 0;
+                    resultEl.innerHTML = '<div class="capture-result success">'
+                        + '<div style="font-weight: 600; margin-bottom: 6px;">&#10003; ' + successCount + ' of ' + count + ' Thread Dumps Captured' + (failCount > 0 ? ' (' + failCount + ' failed)' : '') + '</div>'
+                        + '<div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">PID: <code style="color: var(--accent);">' + escapeHtml(data.jboss_pid || '') + '</code> | jstack: <code style="color: var(--accent);">' + escapeHtml(data.jstack_cmd || '') + '</code></div>'
+                        + '<div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">ZIP: <code style="color: var(--accent);">' + escapeHtml(data.zip_file || '') + '</code></div>'
+                        + '<div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Combined: <code style="color: var(--accent);">' + escapeHtml(data.combined_file || '') + '</code></div>'
+                        + '<div style="font-size: 12px; color: var(--text-secondary);">Directory: <code style="color: var(--accent);">' + escapeHtml(data.dump_dir || '') + '</code></div>'
+                        + '<div class="capture-file-list">' + fileList + '</div>'
+                        + '</div>';
+                    showToast(successCount + ' thread dumps saved to ' + (data.zip_name || 'zip'), 'success');
+                }
+            } catch (err) {
+                clearInterval(timer);
+                status.textContent = 'Failed';
+                resultEl.innerHTML = '<div class="capture-result error">Failed to capture thread dumps: ' + escapeHtml(err.message) + '</div>';
+                showToast('Thread dump capture failed: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '&#9660; Capture Thread Dumps';
+            }
+        }
+
+        function renderThreadDump(threads) {
+            const container = document.getElementById('threadDumpList');
+            const items = threads.map((thread, idx) => {
+                const stateCss = STATE_CSS[thread.state] || '';
+                const firstFrames = thread.stack.slice(0, 5);
+                const remaining = thread.stack.length - 5;
+                const allFrames = thread.stack;
+
+                let stackHtml = firstFrames.map(frame => formatStackFrame(frame)).join('\n');
+                let moreHtml = '';
+                if (remaining > 0) {
+                    moreHtml = `
+                        <div class="more-frames" id="more-${idx}" onclick="expandStack(${idx})">... ${remaining} more frame(s)</div>
+                        <div id="extra-${idx}" style="display:none;">${allFrames.slice(5).map(frame => formatStackFrame(frame)).join('\n')}</div>
+                    `;
+                }
+
+                var serverBadge = thread.server_name ? '<span class="badge badge-info" style="font-size:9px;margin-right:8px;flex-shrink:0;">' + escapeHtml(thread.server_name) + '</span>' : '';
+                return `
+                    <div class="thread-entry" data-thread-name="${escapeHtml(thread.name.toLowerCase())}" data-server-name="${escapeHtml((thread.server_name || '').toLowerCase())}">
+                        <div class="thread-entry-header" onclick="toggleThread(this)">
+                            ${serverBadge}
+                            <span class="thread-name">${escapeHtml(thread.name)}</span>
+                            <span class="thread-state-badge ${stateCss}">${thread.state.replace('_', ' ')}</span>
+                            <span class="chevron">&#9654;</span>
+                        </div>
+                        <div class="thread-stack">
+                            <pre>${stackHtml}</pre>
+                            ${moreHtml}
+                        </div>
+                    </div>
+                `;
+            });
+
+            var btnId = 'threadDumpList_paginate';
+            var existing = document.getElementById(btnId);
+            if (existing) existing.remove();
+
+            if (items.length <= TABLE_PAGE_SIZE) {
+                container.innerHTML = items.join('');
+            } else {
+                var visibleCount = TABLE_PAGE_SIZE;
+                container.innerHTML = items.slice(0, visibleCount).join('');
+                var wrapper = document.createElement('div');
+                wrapper.id = btnId;
+                wrapper.style.cssText = 'text-align:center;padding:12px 0;display:flex;gap:10px;justify-content:center;';
+                var btnMore = document.createElement('button');
+                btnMore.className = 'btn';
+                btnMore.style.cssText = 'font-size:12px;padding:6px 20px;';
+                var btnLess = document.createElement('button');
+                btnLess.className = 'btn';
+                btnLess.style.cssText = 'font-size:12px;padding:6px 20px;display:none;';
+                function updateBtns() {
+                    var remaining = items.length - visibleCount;
+                    if (remaining > 0) { btnMore.textContent = 'Show More (' + remaining + ' remaining)'; btnMore.style.display = ''; }
+                    else { btnMore.style.display = 'none'; }
+                    if (visibleCount > TABLE_PAGE_SIZE) { btnLess.textContent = 'Show Less'; btnLess.style.display = ''; }
+                    else { btnLess.style.display = 'none'; }
+                }
+                btnMore.onclick = function() { visibleCount = Math.min(visibleCount + TABLE_PAGE_SIZE, items.length); container.innerHTML = items.slice(0, visibleCount).join(''); updateBtns(); };
+                btnLess.onclick = function() { visibleCount = Math.max(visibleCount - TABLE_PAGE_SIZE, TABLE_PAGE_SIZE); container.innerHTML = items.slice(0, visibleCount).join(''); updateBtns(); };
+                updateBtns();
+                wrapper.appendChild(btnMore);
+                wrapper.appendChild(btnLess);
+                container.parentElement.insertBefore(wrapper, container.nextSibling);
+            }
+        }
+
+        function formatStackFrame(frame) {
+            // Highlight class.method(source:line) pattern
+            const match = frame.match(/^(.+)\.(\w+)\((.+)\)$/);
+            if (match) {
+                return `    at <span class="frame-class">${escapeHtml(match[1])}</span>.<span class="frame-method">${escapeHtml(match[2])}</span>(<span class="frame-line">${escapeHtml(match[3])}</span>)`;
+            }
+            return `    at ${escapeHtml(frame)}`;
+        }
+
+        function toggleThread(header) {
+            const stack = header.nextElementSibling;
+            header.classList.toggle('expanded');
+            stack.classList.toggle('visible');
+        }
+
+        function expandStack(idx) {
+            const extra = document.getElementById('extra-' + idx);
+            const more = document.getElementById('more-' + idx);
+            if (extra && more) {
+                extra.style.display = 'block';
+                more.style.display = 'none';
+            }
+        }
+
+        // -- Thread filter --
+        document.getElementById('threadFilter').addEventListener('input', function() {
+            const query = this.value.toLowerCase();
+            const entries = document.querySelectorAll('.thread-entry');
+            entries.forEach(entry => {
+                const name = entry.getAttribute('data-thread-name') || '';
+                const server = entry.getAttribute('data-server-name') || '';
+                entry.style.display = (name.includes(query) || server.includes(query)) ? '' : 'none';
+            });
+        });
+
+        var CAT_CSS = {
+            'HTTP Request': 'cat-http', 'HTTP Worker': 'cat-http',
+            'IO Worker': 'cat-io', 'Task Worker': 'cat-task',
+            'DB Query': 'cat-db', 'JPA/Hibernate': 'cat-jpa',
+            'EJB Call': 'cat-ejb', 'Transaction': 'cat-tx', 'Deadlock': 'cat-deadlock',
+            'CDI': 'cat-other', 'JMS': 'cat-jms',
+            'Batch Job': 'cat-other', 'Scheduler': 'cat-other',
+            'Deployment': 'cat-other', 'GC/Finalizer': 'cat-gc',
+            'Management': 'cat-other', 'Network I/O': 'cat-http',
+            'Pool Worker': 'cat-other', 'JBoss Internal': 'cat-other'
+        };
+
+        // -- Thread Stack Trace Modal --
+        function closeThreadModal() {
+            document.getElementById('threadModal').classList.remove('active');
+        }
+
+        document.getElementById('threadModal').addEventListener('click', function(e) {
+            if (e.target === this) closeThreadModal();
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeThreadModal();
+        });
+
+        function highlightFrame(frame) {
+            if (/^(com\.redhat|org\.jboss|io\.undertow)/.test(frame)) {
+                return '<span class="stack-frame-jboss">' + escapeHtml(frame) + '</span>';
+            }
+            if (/^(java\.|javax\.|sun\.|jdk\.)/.test(frame)) {
+                return escapeHtml(frame);
+            }
+            return '<span class="stack-frame-app">' + escapeHtml(frame) + '</span>';
+        }
+
+        function showThreadStack(threadName, event, serverName) {
+            if (event) event.stopPropagation();
+
+            var modal = document.getElementById('threadModal');
+            var title = document.getElementById('threadModalTitle');
+            var body = document.getElementById('threadModalBody');
+
+            title.textContent = (serverName ? '[' + serverName + '] ' : '') + threadName;
+            body.innerHTML = '<div style="color: var(--text-muted); padding: 20px; text-align: center;">Loading thread details...</div>';
+            modal.classList.add('active');
+
+            fetchData('/thread-details').then(function(data) {
+                var threads = data.threads || [];
+                var thread = null;
+                var baseServer = serverName ? serverName.replace(/\s*\(.*\)$/, '') : '';
+                for (var i = 0; i < threads.length; i++) {
+                    var t = threads[i];
+                    if (t.thread_name === threadName) {
+                        if (!serverName || t.server_name === serverName || t.server_name === baseServer) {
+                            thread = t;
+                            break;
+                        }
+                        if (!thread) thread = t;
+                    }
+                }
+                if (thread) {
+                    renderThreadModal(thread, body);
+                } else {
+                    body.innerHTML = '<div style="color: var(--text-muted); padding: 20px; text-align: center;">Thread "' + escapeHtml(threadName) + '" not found in current thread dump.<br><span style="font-size:12px;">It may have finished or returned to the pool.</span></div>';
+                }
+            }).catch(function(err) {
+                body.innerHTML = '<div style="color: var(--critical); padding: 20px; text-align: center;">Failed to load thread details: ' + escapeHtml(err.message) + '</div>';
+            });
+        }
+
+        function renderThreadModal(thread, body) {
+            var stateBadge = 'badge-info';
+            if (thread.state === 'RUNNABLE') stateBadge = 'badge-healthy';
+            else if (thread.state === 'BLOCKED') stateBadge = 'badge-critical';
+            else if (thread.state === 'WAITING' || thread.state === 'TIMED_WAITING') stateBadge = 'badge-warning';
+
+            var catCss = CAT_CSS[thread.category] || 'cat-other';
+
+            var metaHtml = '<div class="thread-meta">';
+            if (thread.server_name) {
+                metaHtml += '<div class="thread-meta-item"><span class="meta-label">Server:</span> <span class="meta-value"><span class="badge badge-info">' + escapeHtml(thread.server_name) + '</span></span></div>';
+            }
+            metaHtml += '<div class="thread-meta-item"><span class="meta-label">State:</span> <span class="meta-value"><span class="badge ' + stateBadge + '">' + escapeHtml(thread.state) + '</span></span></div>'
+                + '<div class="thread-meta-item"><span class="meta-label">ID:</span> <span class="meta-value">' + (thread.thread_id || '-') + '</span></div>'
+                + '<div class="thread-meta-item"><span class="meta-label">Category:</span> <span class="meta-value"><span class="busy-category-badge ' + catCss + '">' + escapeHtml(thread.category || '-') + '</span></span></div>'
+                + '<div class="thread-meta-item"><span class="meta-label">Task:</span> <span class="meta-value">' + escapeHtml(thread.task || '-') + '</span></div>'
+                + '<div class="thread-meta-item"><span class="meta-label">Blocked:</span> <span class="meta-value">' + formatNumber(thread.blocked_count || 0) + 'x</span></div>'
+                + '<div class="thread-meta-item"><span class="meta-label">Waited:</span> <span class="meta-value">' + formatNumber(thread.waited_count || 0) + 'x</span></div>';
+
+            if (thread.lock_name) {
+                metaHtml += '<div class="thread-meta-item"><span class="meta-label">Lock:</span> <span class="meta-value" style="color:var(--critical);">' + escapeHtml(thread.lock_name) + '</span></div>';
+            }
+            if (thread.lock_owner_name) {
+                metaHtml += '<div class="thread-meta-item"><span class="meta-label">Lock Owner:</span> <span class="meta-value" style="color:var(--warning);">' + escapeHtml(thread.lock_owner_name) + '</span></div>';
+            }
+            if (thread.in_native) {
+                metaHtml += '<div class="thread-meta-item"><span class="meta-label">Native:</span> <span class="meta-value">Yes</span></div>';
+            }
+            if (thread.suspended) {
+                metaHtml += '<div class="thread-meta-item"><span class="meta-label">Suspended:</span> <span class="meta-value">Yes</span></div>';
+            }
+            metaHtml += '</div>';
+
+            var stack = thread.stack_trace || [];
+            var stackHtml = '';
+            if (stack.length === 0) {
+                stackHtml = '<div class="stack-trace-box" style="color: var(--text-muted); font-style: italic;">No stack trace available</div>';
+            } else {
+                var frames = stack.map(function(frame) {
+                    return '  at ' + highlightFrame(frame);
+                }).join('\n');
+                stackHtml = '<div style="margin-bottom: 8px; font-size: 12px; color: var(--text-muted);">Stack Trace (' + stack.length + ' frames)</div>'
+                    + '<div class="stack-trace-box">' + frames + '</div>';
+            }
+
+            body.innerHTML = metaHtml + stackHtml;
+        }
+
+        // -- AI Analysis --
+        async function loadAIAnalysis() {
+            var el = document.getElementById('aiAnalysis');
+            el.className = 'ai-content loading';
+            el.textContent = 'Analyzing thread states, pools, and deadlocks...';
+            try {
+                var text = await fetchAPI('/jboss/threads');
+                el.className = 'ai-content';
+                el.textContent = text;
+            } catch (err) {
+                el.className = 'ai-content';
+                el.textContent = 'Failed to load AI analysis: ' + err.message;
+                showToast('Thread analysis failed: ' + err.message, 'error');
+            }
+        }
+
+        // -- Thread History --
+        var threadHistoryChart = null;
+
+        function switchThreadHistoryTab(tabId, btn) {
+            document.querySelectorAll('#threadHistoryCard .th-tab-btn').forEach(function(b) { b.classList.remove('active'); });
+            document.querySelectorAll('#threadHistoryCard .th-tab-panel').forEach(function(p) { p.classList.remove('active'); });
+            btn.classList.add('active');
+            var map = { allTracked: 'tabAllTracked', longRunning: 'tabLongRunning', deadlocks: 'tabDeadlocks', blocked: 'tabBlocked' };
+            document.getElementById(map[tabId]).classList.add('active');
+        }
+
+        function fmtDuration(seconds) {
+            if (seconds >= 3600) return (seconds / 3600).toFixed(1) + 'h';
+            if (seconds >= 60) return (seconds / 60).toFixed(1) + 'm';
+            return seconds.toFixed(1) + 's';
+        }
+
+        function durationClass(seconds) {
+            if (seconds >= 300) return 'duration-long';
+            if (seconds >= 60) return 'duration-medium';
+            return 'duration-short';
+        }
+
+        function fmtHistoryTs(ts) {
+            if (!ts) return '-';
+            try {
+                var d = new Date(ts);
+                var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+                return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+            } catch(e) { return ts; }
+        }
+
+        function fmtFullTs(ts) {
+            if (!ts) return '-';
+            try {
+                var d = new Date(ts);
+                var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+                return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())
+                    + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+            } catch(e) { return ts; }
+        }
+
+        var allTrackedThreads = [];
+
+        function filterTrackedThreads() {
+            var stateFilter = document.getElementById('historyStateFilter').value;
+            var catFilter = document.getElementById('historyCatFilter').value;
+            var nameSearch = (document.getElementById('historyNameSearch').value || '').toLowerCase();
+
+            var filtered = allTrackedThreads.filter(function(t) {
+                if (stateFilter && t.state !== stateFilter) return false;
+                if (catFilter && t.category !== catFilter) return false;
+                if (nameSearch && t.thread_name.toLowerCase().indexOf(nameSearch) === -1) return false;
+                return true;
+            });
+
+            document.getElementById('filteredTrackedCount').textContent = filtered.length + ' of ' + allTrackedThreads.length;
+            renderTrackedThreadsTable(filtered);
+        }
+
+        function renderTrackedThreadsTable(threads) {
+            var container = document.getElementById('allTrackedBody');
+            if (threads.length === 0) {
+                container.innerHTML = '<p style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">No threads match the current filters.</p>';
+                return;
+            }
+
+            var showServer = threads.some(function(t) { return t.server_name != null; });
+            var html = '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>'
+                + (showServer ? '<th>Server</th>' : '')
+                + '<th>Thread Name</th><th>State</th><th>Category</th><th>Since</th>'
+                + '<th>Duration</th><th>Top Frame</th><th>Lock Info</th>'
+                + '</tr></thead><tbody>';
+            for (var i = 0; i < threads.length; i++) {
+                var t = threads[i];
+                var stateCss = STATE_CSS[t.state] || '';
+                var durCss = durationClass(t.duration_seconds);
+                var catCss = CAT_CSS[t.category] || 'cat-other';
+                var lockInfo = '';
+                if (t.lock_name) lockInfo += escapeHtml(t.lock_name.split('@')[0]);
+                if (t.lock_owner_name) lockInfo += (lockInfo ? ' ' : '') + 'owner: ' + escapeHtml(t.lock_owner_name);
+                if (!lockInfo) lockInfo = '-';
+
+                var safeName = escapeHtml(t.thread_name).replace(/'/g, "\\'");
+                var safeServer = t.server_name ? escapeHtml(t.server_name).replace(/'/g, "\\'") : '';
+                var serverCell = showServer ? '<td><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(t.server_name || '-') + '</span></td>' : '';
+                html += '<tr>' + serverCell
+                    + '<td class="mono" style="font-size:12px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(t.thread_name) + '"><span class="thread-link" onclick="showThreadStack(\'' + safeName + '\', event, \'' + safeServer + '\')">' + escapeHtml(t.thread_name) + '</span></td>'
+                    + '<td><span class="thread-state-badge ' + stateCss + '">' + (t.state || '').replace('_', ' ') + '</span></td>'
+                    + '<td><span class="busy-category-badge ' + catCss + '">' + escapeHtml(t.category || '-') + '</span></td>'
+                    + '<td class="mono" style="font-size:11px;white-space:nowrap;">' + fmtFullTs(t.start_time) + '</td>'
+                    + '<td class="mono ' + durCss + '">' + fmtDuration(t.duration_seconds) + '</td>'
+                    + '<td class="mono" style="font-size:11px;color:var(--accent);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(t.top_frame || '-') + '</td>'
+                    + '<td style="font-size:11px;">' + lockInfo + '</td>'
+                    + '</tr>';
+            }
+            html += '</tbody></table></div>';
+            container.innerHTML = html;
+        }
+
+        async function viewEventLog() {
+            try {
+                var resp = await fetch(_appendServerCtx(MCP_API + '/thread-event-log'));
+                var text = await resp.text();
+                var modal = document.createElement('div');
+                modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+                modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+                var box = document.createElement('div');
+                box.style.cssText = 'background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius);padding:20px;max-width:900px;width:90%;max-height:80vh;display:flex;flex-direction:column;';
+                box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+                    + '<h3 style="margin:0;font-size:14px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.5px;">Thread Event Log</h3>'
+                    + '<button class="btn" style="font-size:11px;padding:4px 10px;" onclick="this.closest(\'div[style*=fixed]\').remove()">Close</button></div>'
+                    + '<pre style="flex:1;overflow:auto;font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);background:rgba(0,0,0,0.3);padding:12px;border-radius:4px;border:1px solid var(--border-color);white-space:pre-wrap;word-break:break-all;margin:0;"></pre>';
+                box.querySelector('pre').textContent = text;
+                modal.appendChild(box);
+                document.body.appendChild(modal);
+            } catch (err) {
+                showToast('Failed to load event log: ' + err.message, 'error');
+            }
+        }
+
+        async function loadThreadHistory() {
+            try {
+                var data = await fetchData('/thread-history');
+                if (data.error) {
+                    console.error('Thread history error:', data.error);
+                    return;
+                }
+
+                var snapshots = data.snapshots || [];
+                var longRunning = data.long_running || [];
+                var blocked = data.blocked_events || [];
+                var allTracked = data.all_tracked || [];
+                var deadlocks = data.deadlocks || [];
+                var deadlockEvents = data.deadlock_events || [];
+
+                allTrackedThreads = allTracked;
+
+                document.getElementById('threadHistoryBadge').textContent = snapshots.length + ' snapshots';
+                document.getElementById('allTrackedCount').textContent = allTracked.length;
+                document.getElementById('longRunningCount').textContent = longRunning.length;
+                document.getElementById('deadlockCount').textContent = deadlocks.length;
+                document.getElementById('deadlockEventCount').textContent = deadlockEvents.length;
+                updateDeadlockStat(deadlocks.length);
+                document.getElementById('blockedCount').textContent = data.blocked_event_count || 0;
+
+                if (data.event_log_file) {
+                    var elp = document.getElementById('eventLogPath');
+                    elp.textContent = 'Log file: ' + data.event_log_file;
+                    elp.style.display = 'block';
+                }
+
+                // Populate category filter dropdown
+                var catSummary = data.tracked_category_summary || {};
+                var catSelect = document.getElementById('historyCatFilter');
+                var currentCat = catSelect.value;
+                var catOpts = '<option value="">All Categories</option>';
+                var catKeys = Object.keys(catSummary).sort(function(a, b) { return catSummary[b] - catSummary[a]; });
+                for (var ci = 0; ci < catKeys.length; ci++) {
+                    var sel = catKeys[ci] === currentCat ? ' selected' : '';
+                    catOpts += '<option value="' + escapeHtml(catKeys[ci]) + '"' + sel + '>' + escapeHtml(catKeys[ci]) + ' (' + catSummary[catKeys[ci]] + ')</option>';
+                }
+                catSelect.innerHTML = catOpts;
+
+                // Render category summary pills
+                var summaryHtml = '';
+                var stateSummary = data.tracked_state_summary || {};
+                var stateKeys = Object.keys(stateSummary).sort(function(a, b) { return stateSummary[b] - stateSummary[a]; });
+                for (var si = 0; si < stateKeys.length; si++) {
+                    var sk = stateKeys[si];
+                    var sColor = STATE_COLORS[sk] || '#6e7681';
+                    summaryHtml += '<div class="state-pill"><span class="dot" style="background:' + sColor + ';"></span>' + sk.replace('_', ' ') + '<span class="pill-count">' + stateSummary[sk] + '</span></div>';
+                }
+                for (var cci = 0; cci < catKeys.length; cci++) {
+                    var ck = catKeys[cci];
+                    var css = CAT_CSS[ck] || 'cat-other';
+                    summaryHtml += '<div class="state-pill"><span class="busy-category-badge ' + css + '">' + escapeHtml(ck) + '</span><span class="pill-count">' + catSummary[ck] + '</span></div>';
+                }
+                document.getElementById('trackedCatSummary').innerHTML = summaryHtml;
+
+                // Apply current filters
+                filterTrackedThreads();
+
+                // Render chart
+                if (snapshots.length > 0) {
+                    var labels = snapshots.map(function(s) { return fmtHistoryTs(s.timestamp); });
+                    var totalData = snapshots.map(function(s) { return s.total; });
+                    var runnableData = snapshots.map(function(s) { return s.runnable; });
+                    var blockedData = snapshots.map(function(s) { return s.blocked; });
+                    var waitingData = snapshots.map(function(s) { return s.waiting + s.timed_waiting; });
+
+                    var ctx = document.getElementById('threadHistoryChart').getContext('2d');
+                    if (threadHistoryChart) threadHistoryChart.destroy();
+
+                    threadHistoryChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                { label: 'Total', data: totalData, borderColor: '#8b949e', backgroundColor: 'rgba(139,148,158,0.1)', fill: false, tension: 0.3, pointRadius: 2, borderWidth: 2 },
+                                { label: 'Runnable', data: runnableData, borderColor: '#00ff88', backgroundColor: 'rgba(0,255,136,0.1)', fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2 },
+                                { label: 'Blocked', data: blockedData, borderColor: '#ff2244', backgroundColor: 'rgba(255,34,68,0.1)', fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2 },
+                                { label: 'Waiting', data: waitingData, borderColor: '#ffaa00', backgroundColor: 'rgba(255,170,0,0.1)', fill: false, tension: 0.3, pointRadius: 1, borderWidth: 1, borderDash: [4, 2] }
+                            ]
+                        },
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            interaction: { mode: 'index', intersect: false },
+                            plugins: {
+                                legend: { labels: { color: '#8b949e', usePointStyle: true, pointStyle: 'rectRounded', font: { size: 11 } } },
+                                tooltip: { backgroundColor: '#1e2a3a', titleColor: '#e6edf3', bodyColor: '#8b949e', borderColor: '#2d3f52', borderWidth: 1 }
+                            },
+                            scales: {
+                                x: { ticks: { color: '#8b949e', font: { size: 10 }, maxTicksLimit: 15 }, grid: { color: 'rgba(45,63,82,0.3)' } },
+                                y: { beginAtZero: true, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: 'rgba(45,63,82,0.3)' } }
+                            }
+                        }
+                    });
+                }
+
+                // Render Long Running Threads
+                var lrBody = document.getElementById('longRunningBody');
+                if (longRunning.length === 0) {
+                    lrBody.innerHTML = '<p style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">No long-running threads detected. Threads in RUNNABLE or BLOCKED state for more than 30 seconds will appear here.</p>';
+                } else {
+                    var lrShowServer = longRunning.some(function(t) { return t.server_name != null; });
+                    var lrHtml = '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>'
+                        + (lrShowServer ? '<th>Server</th>' : '')
+                        + '<th>Thread Name</th><th>State</th><th>Category</th><th>Start Time</th>'
+                        + '<th>Duration</th><th>Top Frame</th><th>Lock Info</th>'
+                        + '</tr></thead><tbody>';
+                    for (var i = 0; i < longRunning.length; i++) {
+                        var lr = longRunning[i];
+                        var stateCss = STATE_CSS[lr.state] || '';
+                        var durCss = durationClass(lr.duration_seconds);
+                        var catCss = CAT_CSS[lr.category] || 'cat-other';
+                        var lockInfo = '';
+                        if (lr.lock_name) lockInfo += escapeHtml(lr.lock_name.split('@')[0]);
+                        if (lr.lock_owner_name) lockInfo += (lockInfo ? ' ' : '') + 'owner: ' + escapeHtml(lr.lock_owner_name);
+                        if (!lockInfo) lockInfo = '-';
+
+                        var lrSafeName = escapeHtml(lr.thread_name).replace(/'/g, "\\'");
+                        var lrSafeServer = lr.server_name ? escapeHtml(lr.server_name).replace(/'/g, "\\'") : '';
+                        var lrServerCell = lrShowServer ? '<td><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(lr.server_name || '-') + '</span></td>' : '';
+                        lrHtml += '<tr>' + lrServerCell
+                            + '<td class="mono" style="font-size:12px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(lr.thread_name) + '"><span class="thread-link" onclick="showThreadStack(\'' + lrSafeName + '\', event, \'' + lrSafeServer + '\')">' + escapeHtml(lr.thread_name) + '</span></td>'
+                            + '<td><span class="thread-state-badge ' + stateCss + '">' + lr.state.replace('_', ' ') + '</span></td>'
+                            + '<td><span class="busy-category-badge ' + catCss + '">' + escapeHtml(lr.category) + '</span></td>'
+                            + '<td class="mono" style="font-size:11px;white-space:nowrap;">' + fmtFullTs(lr.start_time) + '</td>'
+                            + '<td class="mono ' + durCss + '">' + fmtDuration(lr.duration_seconds) + '</td>'
+                            + '<td class="mono" style="font-size:11px;color:var(--accent);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(lr.top_frame || '-') + '</td>'
+                            + '<td style="font-size:11px;">' + lockInfo + '</td>'
+                            + '</tr>';
+                    }
+                    lrHtml += '</tbody></table></div>';
+                    lrBody.innerHTML = lrHtml;
+                }
+
+                // Render Deadlocks
+                var dlBody = document.getElementById('deadlockBody');
+                if (deadlocks.length === 0) {
+                    dlBody.innerHTML = '<p style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">No deadlocks detected. Deadlocked threads will appear here when JBoss detects a deadlock cycle.</p>';
+                } else {
+                    var dlHtml = '<div style="padding:12px 16px;margin-bottom:12px;background:rgba(255,34,68,0.06);border:1px solid rgba(255,34,68,0.2);border-radius:var(--radius);font-size:12px;color:var(--critical);font-family:var(--font-mono);">'
+                        + '&#9888; ' + deadlocks.length + ' deadlocked thread' + (deadlocks.length > 1 ? 's' : '') + ' detected! These threads are permanently stuck waiting for each other.'
+                        + '</div>';
+                    var dlShowServer = deadlocks.some(function(t) { return t.server_name != null; });
+                    dlHtml += '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>'
+                        + (dlShowServer ? '<th>Server</th>' : '')
+                        + '<th>Thread Name</th><th>State</th><th>Lock Waiting For</th>'
+                        + '<th>Lock Owner</th><th>Duration</th><th>Top Frame</th>'
+                        + '</tr></thead><tbody>';
+                    for (var di = 0; di < deadlocks.length; di++) {
+                        var dl = deadlocks[di];
+                        var dlStateCss = STATE_CSS[dl.state] || '';
+                        var dlDurCss = durationClass(dl.duration_seconds);
+                        var dlSafeName = escapeHtml(dl.thread_name).replace(/'/g, "\\'");
+                        var dlSafeServer = dl.server_name ? escapeHtml(dl.server_name).replace(/'/g, "\\'") : '';
+                        var dlServerCell = dlShowServer ? '<td><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(dl.server_name || '-') + '</span></td>' : '';
+                        dlHtml += '<tr style="background:rgba(255,34,68,0.03);">' + dlServerCell
+                            + '<td class="mono" style="font-size:12px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(dl.thread_name) + '"><span class="thread-link" onclick="showThreadStack(\'' + dlSafeName + '\', event, \'' + dlSafeServer + '\')">' + escapeHtml(dl.thread_name) + '</span></td>'
+                            + '<td><span class="thread-state-badge ' + dlStateCss + '">' + (dl.state || '').replace('_', ' ') + '</span></td>'
+                            + '<td style="font-size:11px;color:var(--critical);font-family:var(--font-mono);">' + escapeHtml((dl.lock_name || '-').split('@')[0]) + '</td>'
+                            + '<td style="font-size:11px;color:var(--warning);font-family:var(--font-mono);">' + escapeHtml(dl.lock_owner_name || '-') + '</td>'
+                            + '<td class="mono ' + dlDurCss + '">' + fmtDuration(dl.duration_seconds) + '</td>'
+                            + '<td class="mono" style="font-size:11px;color:var(--accent);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(dl.top_frame || '-') + '</td>'
+                            + '</tr>';
+                    }
+                    dlHtml += '</tbody></table></div>';
+                    dlBody.innerHTML = dlHtml;
+                }
+
+                // Render Deadlock Events
+                var dlEvBody = document.getElementById('deadlockEventsBody');
+                if (deadlockEvents.length === 0) {
+                    dlEvBody.innerHTML = '<p style="text-align:center;padding:16px;color:var(--text-muted);font-size:12px;">No deadlock events recorded yet.</p>';
+                } else {
+                    var evHtml = '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>'
+                        + '<th>Timestamp</th><th>Event</th><th>Thread Name</th>'
+                        + '<th>Lock Waiting For</th><th>Lock Owner</th><th>Top Frame</th>'
+                        + '</tr></thead><tbody>';
+                    for (var ei = 0; ei < deadlockEvents.length; ei++) {
+                        var ev = deadlockEvents[ei];
+                        var evType = ev.event || '';
+                        var evColor = evType === 'DETECTED' ? 'var(--critical)' : 'var(--healthy)';
+                        var evBg = evType === 'DETECTED' ? 'rgba(255,34,68,0.03)' : 'rgba(0,255,136,0.03)';
+                        var evLabel = evType === 'DETECTED' ? 'DETECTED' : 'RESOLVED';
+                        evHtml += '<tr style="background:' + evBg + ';">'
+                            + '<td class="mono" style="font-size:11px;white-space:nowrap;">' + fmtFullTs(ev.timestamp) + '</td>'
+                            + '<td style="font-size:11px;font-weight:700;font-family:var(--font-mono);color:' + evColor + ';">' + evLabel + '</td>'
+                            + '<td class="mono" style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(ev.thread_name || '') + '">' + escapeHtml(ev.thread_name || '-') + '</td>'
+                            + '<td style="font-size:11px;color:var(--critical);font-family:var(--font-mono);">' + escapeHtml((ev.lock_name || '-').split('@')[0]) + '</td>'
+                            + '<td style="font-size:11px;color:var(--warning);font-family:var(--font-mono);">' + escapeHtml(ev.lock_owner_name || '-') + '</td>'
+                            + '<td class="mono" style="font-size:11px;color:var(--accent);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(ev.top_frame || '-') + '</td>'
+                            + '</tr>';
+                    }
+                    evHtml += '</tbody></table></div>';
+                    dlEvBody.innerHTML = evHtml;
+                }
+
+                // Render Blocked Threads
+                var blBody = document.getElementById('blockedBody');
+                if (blocked.length === 0) {
+                    blBody.innerHTML = '<p style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">No blocked thread events recorded yet.</p>';
+                } else {
+                    var blShowServer = blocked.some(function(t) { return t.server_name != null; });
+                    var blHtml = '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>'
+                        + '<th>Timestamp</th>'
+                        + (blShowServer ? '<th>Server</th>' : '')
+                        + '<th>Thread Name</th><th>Lock</th>'
+                        + '<th>Lock Owner</th><th>Blocked Count</th><th>Top Frame</th>'
+                        + '</tr></thead><tbody>';
+                    for (var j = 0; j < Math.min(blocked.length, 100); j++) {
+                        var bl = blocked[j];
+                        var blSafeName = escapeHtml(bl.thread_name).replace(/'/g, "\\'");
+                        var blSafeServer = bl.server_name ? escapeHtml(bl.server_name).replace(/'/g, "\\'") : '';
+                        var blServerCell = blShowServer ? '<td><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(bl.server_name || '-') + '</span></td>' : '';
+                        blHtml += '<tr>'
+                            + '<td class="mono" style="font-size:11px;white-space:nowrap;">' + fmtFullTs(bl.timestamp) + '</td>'
+                            + blServerCell
+                            + '<td class="mono" style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(bl.thread_name) + '"><span class="thread-link" onclick="showThreadStack(\'' + blSafeName + '\', event, \'' + blSafeServer + '\')">' + escapeHtml(bl.thread_name) + '</span></td>'
+                            + '<td style="font-size:11px;color:var(--critical);">' + escapeHtml((bl.lock_name || '-').split('@')[0]) + '</td>'
+                            + '<td style="font-size:11px;color:var(--warning);">' + escapeHtml(bl.lock_owner_name || '-') + '</td>'
+                            + '<td class="mono">' + (bl.blocked_count || 0) + '</td>'
+                            + '<td class="mono" style="font-size:11px;color:var(--accent);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(bl.top_frame || '-') + '</td>'
+                            + '</tr>';
+                    }
+                    blHtml += '</tbody></table></div>';
+                    blBody.innerHTML = blHtml;
+                }
+
+            } catch (err) {
+                console.error('Failed to load thread history:', err);
+            }
+        }
+
+        // -- Refresh --
+        async function refreshAll() {
+            try {
+                var results = await Promise.all([
+                    fetchData('/threads'),
+                    fetchData('/thread-dump'),
+                    fetchData('/thread-pools')
+                ]);
+                var threadData = results[0];
+                var threadDumpData = results[1];
+                var poolData = results[2];
+
+                if (threadData.status === 'ok' && threadData.threads) {
+                    updateStatCards(threadData.threads);
+                }
+
+                if (threadDumpData.status === 'ok' && threadDumpData.state_summary) {
+                    initOrUpdateThreadStateChart(threadDumpData.state_summary);
+                }
+
+                if (poolData.status === 'ok' && poolData.pools) {
+                    renderThreadPools(poolData.pools);
+                    renderUndertowStats(poolData.pools);
+                }
+            } catch (err) {
+                console.error('Failed to refresh thread data:', err);
+                showToast('Failed to load thread data: ' + err.message, 'error');
+            }
+            loadThreadHistory();
+        }
+
+        // -- Init --
+        refreshAll();
+        setupAutoRefresh(refreshAll);
+    </script>
+</body>
+</html>

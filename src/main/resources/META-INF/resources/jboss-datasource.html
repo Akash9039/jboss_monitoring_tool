@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JBoss DB Query - JDBC Spy Monitor</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <style>
+        .spy-stat-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 900px) {
+            .spy-stat-row { grid-template-columns: repeat(2, 1fr); }
+        }
+        .spy-stat {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 16px;
+            text-align: center;
+            backdrop-filter: blur(4px);
+            transition: all 0.25s;
+        }
+        .spy-stat:hover {
+            border-color: rgba(0,212,255,0.25);
+            box-shadow: 0 0 15px rgba(0,212,255,0.06);
+        }
+        .spy-stat .stat-value {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+        }
+        .spy-stat .stat-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 6px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-family: var(--font-mono);
+        }
+        .filter-bar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .filter-bar select, .filter-bar input {
+            padding: 6px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            background: rgba(0,0,0,0.3);
+            color: var(--text-primary);
+            font-size: 12px;
+            font-family: var(--font-mono);
+            transition: all 0.2s;
+        }
+        .filter-bar select:focus, .filter-bar input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 10px rgba(0,212,255,0.1);
+        }
+        .sql-cell {
+            font-size: 11px;
+            max-width: 450px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+            font-family: var(--font-mono);
+        }
+        .sql-cell:hover {
+            white-space: normal;
+            word-break: break-all;
+            background: rgba(0, 212, 255, 0.03);
+        }
+        .params-cell {
+            font-size: 10px;
+            max-width: 250px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+        }
+        .params-cell:hover {
+            white-space: normal;
+            word-break: break-all;
+        }
+        .exec-slow { color: var(--critical); font-weight: 600; text-shadow: 0 0 6px rgba(255,34,68,0.2); }
+        .exec-warn { color: var(--warning); font-weight: 600; text-shadow: 0 0 6px rgba(255,170,0,0.2); }
+        .exec-fast { color: var(--healthy); text-shadow: 0 0 6px rgba(0,255,136,0.15); }
+        .config-panel {
+            background: rgba(0, 212, 255, 0.03);
+            border: 1px solid rgba(0, 212, 255, 0.12);
+            border-radius: var(--radius);
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            backdrop-filter: blur(4px);
+        }
+        .config-panel code {
+            background: rgba(0,0,0,0.3);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            color: var(--accent);
+            font-family: var(--font-mono);
+        }
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .status-dot.active { background: var(--healthy); box-shadow: 0 0 6px rgba(0,255,136,0.4); }
+        .status-dot.inactive { background: var(--critical); box-shadow: 0 0 6px rgba(255,34,68,0.4); }
+        @keyframes rowPulse {
+            0%, 100% { background: rgba(255, 34, 68, 0.08); }
+            50% { background: rgba(255, 34, 68, 0.18); }
+        }
+        .data-table tr.row-alert td {
+            animation: rowPulse 2s ease-in-out infinite;
+            border-color: rgba(255, 34, 68, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar"></div>
+    <div class="main-content">
+        <div id="pageHeader"></div>
+        <div class="content">
+
+            <!-- AI Analysis Panel -->
+            <div class="ai-panel">
+                <div class="ai-header">&#9733; AI DB Query Analysis</div>
+                <div class="ai-content" id="aiDbQueryContent">Click the button below to run AI database query analysis.</div>
+                <div style="margin-top: 12px;">
+                    <button class="btn btn-primary" onclick="loadAIDbAnalysis()">&#9733; Analyze DB Queries</button>
+                </div>
+            </div>
+
+            <!-- Config Info -->
+            <div class="config-panel" id="configPanel">
+                <strong>JDBC Spy Logging</strong> &mdash;
+                This page reads queries from JBoss's <code>jboss.jdbc.spy</code> logger.
+                It captures every JDBC call (SQL text, bind parameters, execution time) at the JBoss level &mdash; no database-side configuration needed.
+                <div style="margin-top: 8px;">
+                    <span class="status-dot" id="spyStatusDot"></span>
+                    <span id="spyStatusText">Checking...</span>
+                    <span id="spyLogPath" style="margin-left: 12px; font-size: 11px; color: var(--text-muted);"></span>
+                </div>
+            </div>
+
+            <!-- Stat Cards -->
+            <div class="spy-stat-row" id="spyStats">
+                <div class="spy-stat">
+                    <div class="stat-value" id="statTotalQueries">-</div>
+                    <div class="stat-label">Total Queries Captured</div>
+                </div>
+                <div class="spy-stat">
+                    <div class="stat-value" id="statAvgExec">-</div>
+                    <div class="stat-label">Avg Execution Time</div>
+                </div>
+                <div class="spy-stat">
+                    <div class="stat-value" id="statSlowest">-</div>
+                    <div class="stat-label">Slowest Query</div>
+                </div>
+                <div class="spy-stat">
+                    <div class="stat-value" id="statDatasources">-</div>
+                    <div class="stat-label">Datasources Tracked</div>
+                </div>
+            </div>
+
+            <!-- Query Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>JDBC Spy Query Log</h3>
+                    <button class="btn btn-primary" onclick="loadSpyData()">&#8635; Refresh</button>
+                </div>
+                <div class="card-body">
+                    <!-- Filters -->
+                    <div class="filter-bar">
+                        <label style="font-size: 12px; color: var(--text-muted);">Datasource:</label>
+                        <select id="filterDs" onchange="applyFilters()">
+                            <option value="">All Datasources</option>
+                        </select>
+                        <label style="font-size: 12px; color: var(--text-muted);">Min Exec Time:</label>
+                        <input type="number" id="filterMinTime" placeholder="0" style="width: 80px;" value="0" onchange="applyFilters()"> ms
+                        <label style="font-size: 12px; color: var(--text-muted);">SQL Contains:</label>
+                        <input type="text" id="filterSql" placeholder="e.g. SELECT, INSERT..." style="width: 180px;" oninput="applyFilters()">
+                        <span style="font-size: 12px; color: var(--text-muted); margin-left: auto;" id="filterCount"></span>
+                    </div>
+
+                    <!-- Table -->
+                    <div id="spyTableContainer">
+                        <p style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 32px 0;">
+                            Click "Refresh" to load JDBC spy data from JBoss.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+    var allQueries = [];
+    var filteredQueries = [];
+
+    async function loadAIDbAnalysis() {
+        var el = document.getElementById('aiDbQueryContent');
+        el.className = 'ai-content loading';
+        el.textContent = 'Analyzing JDBC spy queries and datasource performance...';
+        try {
+            var text = await fetchAPI('/jboss/datasources');
+            el.className = 'ai-content';
+            el.textContent = text;
+        } catch (err) {
+            el.className = 'ai-content';
+            el.textContent = 'Failed to load AI analysis: ' + err.message;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('sidebar').innerHTML = renderSidebar();
+        document.getElementById('pageHeader').innerHTML = renderPageHeader(
+            'JBoss DB Query',
+            'JDBC Spy query monitoring — captures every SQL call at the JBoss level'
+        );
+        setActiveNav();
+        loadSpyData();
+    });
+
+    async function loadSpyData() {
+        var container = document.getElementById('spyTableContainer');
+        container.innerHTML = '<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line medium"></div><div class="skeleton skeleton-line short"></div>';
+
+        try {
+            var data = await fetchData('/jdbc-spy');
+
+            if (data.status === 'not_configured') {
+                document.getElementById('spyStatusDot').className = 'status-dot inactive';
+                document.getElementById('spyStatusText').textContent = 'Not Configured';
+                container.innerHTML = '<div style="text-align: center; padding: 32px; color: var(--text-muted);">'
+                    + '<div style="font-size: 40px; margin-bottom: 12px; opacity: 0.3;">&#9888;</div>'
+                    + '<p style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">JDBC Spy Not Configured</p>'
+                    + '<p style="font-size: 12px;">Enable spy logging with these JBoss CLI commands:</p>'
+                    + '<pre style="text-align: left; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 6px; margin-top: 12px; font-size: 11px; color: var(--accent);">'
+                    + '# Enable spy on each datasource\n'
+                    + '/subsystem=datasources/data-source=YOUR_DS:write-attribute(name=spy, value=true)\n\n'
+                    + '# Add spy logger\n'
+                    + '/subsystem=logging/logger=jboss.jdbc.spy:add(level=DEBUG)\n\n'
+                    + '# Create dedicated log file handler\n'
+                    + '/subsystem=logging/periodic-rotating-file-handler=JDBC_SPY:add(\\\n'
+                    + '    file={relative-to=jboss.server.log.dir, path=jdbc-spy.log},\\\n'
+                    + '    suffix=.yyyy-MM-dd, append=true, level=DEBUG)\n'
+                    + '/subsystem=logging/logger=jboss.jdbc.spy:add-handler(name=JDBC_SPY)\n\n'
+                    + ':reload</pre></div>';
+                return;
+            }
+
+            document.getElementById('spyStatusDot').className = 'status-dot active';
+            document.getElementById('spyStatusText').textContent = 'Active';
+            document.getElementById('spyLogPath').textContent = data.log_file || '';
+
+            allQueries = data.queries || [];
+            var dsSeen = data.datasources_seen || [];
+
+            // Update stat cards
+            document.getElementById('statTotalQueries').textContent = formatNumber(allQueries.length);
+            document.getElementById('statDatasources').textContent = dsSeen.length;
+
+            if (allQueries.length > 0) {
+                var totalExec = allQueries.reduce(function(s, q) { return s + q.exec_time_ms; }, 0);
+                var avgExec = totalExec / allQueries.length;
+                var maxExec = Math.max.apply(null, allQueries.map(function(q) { return q.exec_time_ms; }));
+                document.getElementById('statAvgExec').textContent = formatExecTime(avgExec);
+                document.getElementById('statSlowest').textContent = formatExecTime(maxExec);
+            } else {
+                document.getElementById('statAvgExec').textContent = '-';
+                document.getElementById('statSlowest').textContent = '-';
+            }
+
+            // Populate datasource filter
+            var select = document.getElementById('filterDs');
+            select.innerHTML = '<option value="">All Datasources</option>';
+            dsSeen.forEach(function(ds) {
+                var opt = document.createElement('option');
+                opt.value = ds;
+                opt.textContent = ds;
+                select.appendChild(opt);
+            });
+
+            applyFilters();
+        } catch (err) {
+            container.innerHTML = '<p style="color: var(--critical);">Failed to load JDBC spy data: ' + escapeHtml(err.message) + '</p>';
+        }
+    }
+
+    function applyFilters() {
+        var dsFilter = document.getElementById('filterDs').value;
+        var minTime = parseFloat(document.getElementById('filterMinTime').value) || 0;
+        var sqlFilter = (document.getElementById('filterSql').value || '').toLowerCase();
+
+        filteredQueries = allQueries.filter(function(q) {
+            if (dsFilter && q.datasource !== dsFilter) return false;
+            if (q.exec_time_ms < minTime) return false;
+            if (sqlFilter && q.sql.toLowerCase().indexOf(sqlFilter) === -1) return false;
+            return true;
+        });
+
+        document.getElementById('filterCount').textContent = filteredQueries.length + ' of ' + allQueries.length + ' queries';
+        renderTable(filteredQueries);
+    }
+
+    function formatExecTime(ms) {
+        if (ms >= 1000) return (ms / 1000).toFixed(2) + 's';
+        return ms.toFixed(1) + 'ms';
+    }
+
+    function getExecClass(ms) {
+        if (ms >= 1000) return 'exec-slow';
+        if (ms >= 100) return 'exec-warn';
+        return 'exec-fast';
+    }
+
+    function renderTable(queries) {
+        var container = document.getElementById('spyTableContainer');
+
+        if (queries.length === 0) {
+            container.innerHTML = '<p style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px;">No queries match the current filters.</p>';
+            return;
+        }
+
+        var rows = queries.map(function(q, i) {
+            var execClass = getExecClass(q.exec_time_ms);
+            var alertClass = q.exec_time_ms >= 10000 ? ' class="row-alert"' : '';
+            var sqlTitle = q.sql.replace(/"/g, '&quot;');
+            var paramsTitle = (q.params || '').replace(/"/g, '&quot;');
+            return '<tr' + alertClass + '>'
+                + '<td class="mono" style="color: var(--text-muted); font-size: 11px;">' + (i + 1) + '</td>'
+                + '<td style="font-size: 11px; white-space: nowrap;">' + escapeHtml(q.timestamp) + '</td>'
+                + '<td><span class="badge badge-info">' + escapeHtml(q.datasource) + '</span></td>'
+                + '<td class="mono sql-cell" title="' + sqlTitle + '">' + escapeHtml(q.sql) + '</td>'
+                + '<td class="params-cell" title="' + paramsTitle + '">' + escapeHtml(q.params || '-') + '</td>'
+                + '<td class="mono ' + execClass + '">' + formatExecTime(q.exec_time_ms) + '</td>'
+                + '<td class="mono" style="font-size: 11px;">' + escapeHtml(q.execute_type || '-') + '</td>'
+                + '<td style="font-size: 11px; color: var(--text-muted);">' + escapeHtml(q.thread) + '</td>'
+                + '</tr>';
+        });
+
+        container.innerHTML = '<div class="table-scroll" style="overflow-x: auto;">'
+            + '<table class="data-table"><thead><tr>'
+            + '<th>#</th>'
+            + '<th>Timestamp</th>'
+            + '<th>Datasource</th>'
+            + '<th style="min-width: 300px;">SQL Query</th>'
+            + '<th>Parameters</th>'
+            + '<th>Exec Time</th>'
+            + '<th>Type</th>'
+            + '<th>Thread</th>'
+            + '</tr></thead><tbody id="spyQueryTbody"></tbody></table></div>';
+        paginateTable('spyQueryTbody', rows);
+    }
+    </script>
+</body>
+</html>

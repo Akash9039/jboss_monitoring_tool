@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JBoss Monitor - Web &amp; Sessions</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .table-scroll { overflow-x: auto; }
+        .error-highlight { color: var(--critical); font-weight: 600; }
+        .chart-legend-inline {
+            display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px;
+            font-size: 12px; color: var(--text-secondary);
+        }
+        .chart-legend-inline .legend-item { display: flex; align-items: center; gap: 6px; }
+        .chart-legend-inline .legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
+
+        .time-slow { color: var(--critical); font-weight: 600; }
+        .time-medium { color: var(--warning); font-weight: 600; }
+
+        .thread-link {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+            text-underline-offset: 3px;
+        }
+        .thread-link:hover { text-decoration-style: solid; color: #40e0ff; }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(4px);
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-box {
+            background: rgba(8, 18, 35, 0.95);
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            border-radius: 8px;
+            width: 720px;
+            max-width: 92vw;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 30px rgba(0,212,255,0.05);
+            backdrop-filter: blur(12px);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+        }
+        .modal-header h3 { margin: 0; font-size: 14px; color: var(--text-primary); font-family: var(--font-mono); letter-spacing: 0.5px; }
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 22px;
+            cursor: pointer;
+            padding: 0 4px;
+            line-height: 1;
+        }
+        .modal-close:hover { color: var(--accent); }
+        .modal-body {
+            padding: 16px 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .thread-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 8px 16px;
+            margin-bottom: 16px;
+            font-size: 12px;
+        }
+        .thread-meta-item { display: flex; gap: 6px; }
+        .thread-meta-item .meta-label { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .thread-meta-item .meta-value { color: var(--text-primary); font-family: var(--font-mono); }
+        .stack-trace-box {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(0, 212, 255, 0.08);
+            border-radius: 4px;
+            padding: 14px 16px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .stack-frame-app { color: #00d4ff; }
+        .stack-frame-jboss { color: #ffaa00; }
+    </style>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+    <div class="main-content">
+        <div id="header-container"></div>
+        <div class="content">
+
+            <div>
+
+                <!-- AI Analysis Panel -->
+                <div class="ai-panel">
+                    <div class="ai-header">&#9733; AI Web Performance Analysis</div>
+                    <div class="ai-content" id="aiWebContentTop">Click the button below to run AI web performance analysis.</div>
+                    <div style="margin-top: 12px;">
+                        <button class="btn btn-primary" onclick="loadWebAIAnalysis()">&#9733; Analyze Web Performance</button>
+                    </div>
+                </div>
+
+                <!-- Stat Cards Row -->
+                <div class="stats-row">
+                    <div class="stat-card">
+                        <div class="stat-label">Total Requests</div>
+                        <div class="stat-value" id="valTotalRequests">--</div>
+                        <div class="stat-sub">Across all HTTP listeners</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Error Count</div>
+                        <div class="stat-value" id="valErrorCount">--</div>
+                        <div class="stat-sub">Total HTTP errors returned</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Bytes Sent</div>
+                        <div class="stat-value" id="valBytesSent">--</div>
+                        <div class="stat-sub">Total outbound traffic</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Max Processing Time</div>
+                        <div class="stat-value" id="valMaxProcessing">--</div>
+                        <div class="stat-sub">Longest single request</div>
+                    </div>
+                </div>
+
+                <!-- HTTP Listeners Table -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>HTTP Listeners</h3>
+                        <span class="badge badge-info" id="listenerCount">0 listeners</span>
+                    </div>
+                    <div class="card-body no-padding">
+                        <div class="table-scroll">
+                            <table class="data-table" id="listenersTable">
+                                <thead>
+                                    <tr>
+                                        <th>Server</th><th>Listener Type</th><th>Name</th><th>Enabled</th>
+                                        <th>Requests</th><th>Errors</th><th>Bytes Sent</th><th>Bytes Received</th>
+                                        <th>Processing Time</th><th>Max Processing Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="listenersBody">
+                                    <tr><td colspan="10" style="text-align:center; color: var(--text-muted); padding: 24px;">Loading listener data...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Request Throughput Chart -->
+                <div class="card">
+                    <div class="card-header"><h3>Request Throughput by Listener</h3></div>
+                    <div class="card-body">
+                        <div class="chart-container"><canvas id="throughputChart"></canvas></div>
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <!-- HTTP Sessions Table -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>HTTP Sessions</h3>
+                            <span class="badge badge-info" id="sessionDeployCount">0 deployments</span>
+                        </div>
+                        <div class="card-body no-padding">
+                            <div class="table-scroll">
+                                <table class="data-table" id="sessionsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Deployment</th><th>Active Sessions</th><th>Expired</th><th>Created</th>
+                                            <th>Max Active</th><th>Rejected</th><th>Avg Alive Time</th><th>Max Alive Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sessionsBody">
+                                        <tr><td colspan="8" style="text-align:center; color: var(--text-muted); padding: 24px;">Loading session data...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Servlet Performance Table -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Servlet Performance</h3>
+                            <span class="badge badge-info" id="servletCount">0 servlets</span>
+                        </div>
+                        <div class="card-body no-padding">
+                            <div class="table-scroll">
+                                <table class="data-table" id="servletsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Deployment</th><th>Servlet</th><th>Request Count</th>
+                                            <th>Total Time</th><th>Min Time</th><th>Max Time</th><th>Avg Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="servletsBody">
+                                        <tr><td colspan="7" style="text-align:center; color: var(--text-muted); padding: 24px;">Loading servlet data...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Session History Chart + Table -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Session History</h3>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <select id="sessionHistoryDeploy" style="background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; font-size: 12px;">
+                                <option value="">All Deployments</option>
+                            </select>
+                            <span class="badge badge-info" id="sessionHistoryCount">0 snapshots</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container" style="height: 220px;">
+                            <canvas id="sessionHistoryChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Individual Session Details Table -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Individual Session Details</h3>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <select id="sessionDetailsDeploy" style="background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; font-size: 12px;">
+                                <option value="">All Deployments</option>
+                            </select>
+                            <span class="badge badge-info" id="sessionDetailsCount">0 sessions</span>
+                        </div>
+                    </div>
+                    <div class="card-body no-padding">
+                        <div class="table-scroll">
+                            <table class="data-table" id="sessionDetailsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Session ID</th><th>Deployment</th><th>Start Time</th><th>End Time</th>
+                                        <th>Total Time</th><th>Thread</th><th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sessionDetailsBody">
+                                    <tr><td colspan="7" style="text-align:center; color: var(--text-muted); padding: 24px;">Collecting session details... (snapshots every 30s)</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Thread Stack Trace Modal -->
+            <div class="modal-overlay" id="threadModal">
+                <div class="modal-box">
+                    <div class="modal-header">
+                        <h3 id="threadModalTitle">Thread Stack Trace</h3>
+                        <button class="modal-close" onclick="closeThreadModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" id="threadModalBody">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+        document.getElementById('sidebar-container').innerHTML = renderSidebar();
+        document.getElementById('header-container').innerHTML = renderPageHeader(
+            'Web & Sessions',
+            'HTTP listeners, request throughput, session tracking, and API request data'
+        );
+        setActiveNav();
+
+        // ========== Web & Sessions ==========
+
+        var listeners = [];
+        var sessions = [];
+        var servlets = [];
+
+        function renderStatCards() {
+            var totalRequests = 0, totalErrors = 0, totalBytesSent = 0, maxProc = 0;
+            listeners.forEach(function(l) {
+                totalRequests += l.request_count || 0;
+                totalErrors += l.error_count || 0;
+                totalBytesSent += l.bytes_sent || 0;
+                if ((l.max_processing_time_ms || 0) > maxProc) maxProc = l.max_processing_time_ms;
+            });
+
+            document.getElementById('valTotalRequests').textContent = formatNumber(totalRequests);
+
+            var errEl = document.getElementById('valErrorCount');
+            errEl.textContent = formatNumber(totalErrors);
+            var errRate = totalRequests > 0 ? (totalErrors / totalRequests * 100) : 0;
+            errEl.className = 'stat-value ' + (errRate >= 5 ? 'critical' : errRate >= 1 ? 'warning' : 'healthy');
+
+            document.getElementById('valBytesSent').innerHTML = formatBytes(totalBytesSent);
+
+            var maxEl = document.getElementById('valMaxProcessing');
+            maxEl.innerHTML = formatMs(maxProc);
+            maxEl.className = 'stat-value ' + (maxProc >= 10000 ? 'critical' : maxProc >= 5000 ? 'warning' : 'healthy');
+        }
+
+        function renderListenersTable() {
+            var tbody = document.getElementById('listenersBody');
+            document.getElementById('listenerCount').textContent = listeners.length + ' listeners';
+            var showServer = listeners.length > 0 && listeners[0].server_name != null;
+            var colCount = showServer ? 11 : 10;
+
+            var thead = tbody.closest('table').querySelector('thead tr');
+            if (thead) {
+                var hdr = showServer ? '<th>Domain Server</th>' : '';
+                hdr += '<th>Server</th><th>Listener Type</th><th>Name</th><th>Enabled</th><th>Requests</th><th>Errors</th><th>Bytes Sent</th><th>Bytes Received</th><th>Processing Time</th><th>Max Processing Time</th>';
+                thead.innerHTML = hdr;
+            }
+
+            if (listeners.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center; color: var(--text-muted); padding: 24px;">No listener data available</td></tr>';
+                return;
+            }
+
+            var rows = listeners.map(function(l) {
+                var requests = l.request_count || 0;
+                var errors = l.error_count || 0;
+                var errRate = requests > 0 ? (errors / requests * 100) : 0;
+                var errClass = errRate >= 5 ? 'error-highlight' : '';
+                var listenerType = (l.type || 'http-listener').replace('-listener', '').toUpperCase();
+                var serverCell = showServer ? '<td class="mono" style="font-size:11px;"><span class="badge badge-info">' + escapeHtml(l.server_name || '') + '</span></td>' : '';
+                return '<tr>'
+                    + serverCell
+                    + '<td class="mono">' + escapeHtml(l.server || '--') + '</td>'
+                    + '<td><span class="badge badge-info">' + escapeHtml(listenerType) + '</span></td>'
+                    + '<td class="mono">' + escapeHtml(l.name || '--') + '</td>'
+                    + '<td>' + (l.enabled !== false ? '<span class="badge badge-healthy">Yes</span>' : '<span class="badge badge-critical">No</span>') + '</td>'
+                    + '<td class="mono">' + formatNumber(requests) + '</td>'
+                    + '<td class="mono ' + errClass + '">' + formatNumber(errors) + '</td>'
+                    + '<td class="mono">' + formatBytes(l.bytes_sent || 0) + '</td>'
+                    + '<td class="mono">' + formatBytes(l.bytes_received || 0) + '</td>'
+                    + '<td class="mono">' + formatMs(l.processing_time_ms || 0) + '</td>'
+                    + '<td class="mono">' + formatMs(l.max_processing_time_ms || 0) + '</td>'
+                    + '</tr>';
+            });
+            paginateTable('listenersBody', rows);
+        }
+
+        var throughputChart = null;
+
+        function renderThroughputChart() {
+            var ctx = document.getElementById('throughputChart').getContext('2d');
+            var labels = listeners.map(function(l) {
+                var t = (l.type || 'http-listener').replace('-listener', '').toUpperCase();
+                var prefix = l.server_name ? l.server_name + ' - ' : '';
+                return prefix + l.name + ' (' + t + ')';
+            });
+            var requestData = listeners.map(function(l) { return l.request_count || 0; });
+            var errorData = listeners.map(function(l) { return l.error_count || 0; });
+
+            if (throughputChart) throughputChart.destroy();
+
+            throughputChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Requests', data: requestData, backgroundColor: 'rgba(88,166,255,0.7)', borderColor: 'rgba(88,166,255,1)', borderWidth: 1, borderRadius: 4 },
+                        { label: 'Errors', data: errorData, backgroundColor: 'rgba(248,81,73,0.7)', borderColor: 'rgba(248,81,73,1)', borderWidth: 1, borderRadius: 4 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#8b949e', font: { size: 12 }, usePointStyle: true, pointStyle: 'rectRounded' } },
+                        tooltip: { backgroundColor: '#1e2a3a', titleColor: '#e6edf3', bodyColor: '#8b949e', borderColor: '#2d3f52', borderWidth: 1,
+                            callbacks: { label: function(context) { return context.dataset.label + ': ' + formatNumber(context.parsed.y); } }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#8b949e', font: { size: 11 } }, grid: { color: 'rgba(45,63,82,0.5)' } },
+                        y: { ticks: { color: '#8b949e', font: { size: 11 }, callback: function(v) { return formatNumber(v); } }, grid: { color: 'rgba(45,63,82,0.5)' } }
+                    }
+                }
+            });
+        }
+
+        function renderSessionsTable() {
+            var tbody = document.getElementById('sessionsBody');
+            document.getElementById('sessionDeployCount').textContent = sessions.length + ' deployments';
+            var showServer = sessions.length > 0 && sessions[0].server_name != null;
+            var colCount = showServer ? 9 : 8;
+
+            var thead = tbody.closest('table').querySelector('thead tr');
+            if (thead) {
+                var hdr = showServer ? '<th>Server</th>' : '';
+                hdr += '<th>Deployment</th><th>Active Sessions</th><th>Expired</th><th>Created</th><th>Max Active</th><th>Rejected</th><th>Avg Alive Time</th><th>Max Alive Time</th>';
+                thead.innerHTML = hdr;
+            }
+
+            if (sessions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center; color: var(--text-muted); padding: 24px;">No session data available</td></tr>';
+                return;
+            }
+
+            var rows = sessions.map(function(s) {
+                var active = s.active_sessions || 0;
+                var activeClass = active > 200 ? 'warning' : '';
+                var rejected = s.rejected_sessions || 0;
+                var rejectedClass = rejected > 0 ? 'error-highlight' : '';
+                var serverCell = showServer ? '<td class="mono" style="font-size:11px;"><span class="badge badge-info">' + escapeHtml(s.server_name || '') + '</span></td>' : '';
+                return '<tr>'
+                    + serverCell
+                    + '<td class="mono">' + escapeHtml(s.deployment) + '</td>'
+                    + '<td class="mono"><span class="stat-value ' + activeClass + '" style="font-size:13px">' + formatNumber(active) + '</span></td>'
+                    + '<td class="mono">' + formatNumber(s.expired_sessions || 0) + '</td>'
+                    + '<td class="mono">' + formatNumber(s.sessions_created || 0) + '</td>'
+                    + '<td class="mono">' + formatNumber(s.max_active_sessions || 0) + '</td>'
+                    + '<td class="mono ' + rejectedClass + '">' + formatNumber(rejected) + '</td>'
+                    + '<td class="mono">' + formatMs(s.session_avg_alive_time || 0) + '</td>'
+                    + '<td class="mono">' + formatMs(s.session_max_alive_time || 0) + '</td>'
+                    + '</tr>';
+            });
+            paginateTable('sessionsBody', rows);
+        }
+
+        function renderServletsTable() {
+            var tbody = document.getElementById('servletsBody');
+            document.getElementById('servletCount').textContent = servlets.length + ' servlets';
+            var showServer = servlets.length > 0 && servlets[0].server_name != null;
+            var colCount = showServer ? 8 : 7;
+
+            var thead = tbody.closest('table').querySelector('thead tr');
+            if (thead) {
+                var hdr = showServer ? '<th>Server</th>' : '';
+                hdr += '<th>Deployment</th><th>Servlet</th><th>Request Count</th><th>Total Time</th><th>Min Time</th><th>Max Time</th><th>Avg Time</th>';
+                thead.innerHTML = hdr;
+            }
+
+            if (servlets.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center; color: var(--text-muted); padding: 24px;">No servlet data available</td></tr>';
+                return;
+            }
+
+            var rows = servlets.map(function(s) {
+                var reqCount = s.request_count || 0;
+                var totalTime = s.total_request_time_ms || 0;
+                var minTime = s.min_request_time_ms || 0;
+                var maxTime = s.max_request_time_ms || 0;
+                var avgTime = reqCount > 0 ? Math.round(totalTime / reqCount) : 0;
+                var avgClass = avgTime >= 500 ? 'critical' : avgTime >= 100 ? 'warning' : '';
+                var maxClass = maxTime >= 10000 ? 'critical' : maxTime >= 5000 ? 'warning' : '';
+                var serverCell = showServer ? '<td class="mono" style="font-size:11px;"><span class="badge badge-info">' + escapeHtml(s.server_name || '') + '</span></td>' : '';
+                return '<tr>'
+                    + serverCell
+                    + '<td class="mono">' + escapeHtml(s.deployment) + '</td>'
+                    + '<td class="mono">' + escapeHtml(s.servlet) + '</td>'
+                    + '<td class="mono">' + formatNumber(reqCount) + '</td>'
+                    + '<td class="mono">' + formatMs(totalTime) + '</td>'
+                    + '<td class="mono">' + formatMs(minTime) + '</td>'
+                    + '<td class="mono ' + maxClass + '">' + formatMs(maxTime) + '</td>'
+                    + '<td class="mono ' + avgClass + '">' + formatMs(avgTime) + '</td>'
+                    + '</tr>';
+            });
+            paginateTable('servletsBody', rows);
+        }
+
+        // --- Session History Chart + Table ---
+        var sessionHistoryChart = null;
+        var session_history_all_entries = [];
+
+        function formatHistoryTimestamp(ts) {
+            if (!ts) return '-';
+            var d = new Date(ts);
+            var y = d.getFullYear();
+            var mo = String(d.getMonth() + 1).padStart(2, '0');
+            var da = String(d.getDate()).padStart(2, '0');
+            var h = String(d.getHours()).padStart(2, '0');
+            var mi = String(d.getMinutes()).padStart(2, '0');
+            var s = String(d.getSeconds()).padStart(2, '0');
+            return y + '-' + mo + '-' + da + ' ' + h + ':' + mi + ':' + s;
+        }
+
+        async function loadSessionHistory() {
+            try {
+                var deployFilter = document.getElementById('sessionHistoryDeploy').value;
+                var allData = await fetchData('/sessions/history');
+                var allEntries = allData.history || [];
+                session_history_all_entries = allEntries;
+
+                var entries = allEntries;
+                if (deployFilter) {
+                    entries = allEntries.filter(function(e) { return e.deployment === deployFilter; });
+                }
+                document.getElementById('sessionHistoryCount').textContent = entries.length + ' snapshots';
+
+                var allDeploymentsMap = {};
+                allEntries.forEach(function(e) { allDeploymentsMap[e.deployment] = true; });
+
+                var select = document.getElementById('sessionHistoryDeploy');
+                var currentVal = select.value;
+                var opts = '<option value="">All Deployments</option>';
+                Object.keys(allDeploymentsMap).sort().forEach(function(dep) {
+                    var sel = dep === currentVal ? ' selected' : '';
+                    opts += '<option value="' + escapeHtml(dep) + '"' + sel + '>' + escapeHtml(dep) + '</option>';
+                });
+                select.innerHTML = opts;
+
+                var deployments = {};
+                entries.forEach(function(e) {
+                    var key = e.deployment;
+                    if (!deployments[key]) deployments[key] = {};
+                    var ts = e.timestamp;
+                    deployments[key][ts] = (deployments[key][ts] || 0) + (e.active_sessions || 0);
+                });
+
+                var depNames = Object.keys(deployments).sort();
+                if (depNames.length === 0) return;
+
+                var allTimestamps = [];
+                var seen = {};
+                entries.forEach(function(e) {
+                    if (!seen[e.timestamp]) { seen[e.timestamp] = true; allTimestamps.push(e.timestamp); }
+                });
+                allTimestamps.sort();
+
+                var chartLabels = allTimestamps.map(function(ts) {
+                    var d = new Date(ts);
+                    return d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+                });
+
+                var colors = [
+                    {border: 'rgba(63,185,80,1)', bg: 'rgba(63,185,80,0.15)'},
+                    {border: 'rgba(88,166,255,1)', bg: 'rgba(88,166,255,0.15)'},
+                    {border: 'rgba(210,153,34,1)', bg: 'rgba(210,153,34,0.15)'},
+                    {border: 'rgba(248,81,73,1)', bg: 'rgba(248,81,73,0.15)'},
+                    {border: 'rgba(163,113,247,1)', bg: 'rgba(163,113,247,0.15)'},
+                    {border: 'rgba(255,166,87,1)', bg: 'rgba(255,166,87,0.15)'}
+                ];
+
+                var datasets = depNames.map(function(dep, idx) {
+                    var tsMap = deployments[dep];
+                    var c = colors[idx % colors.length];
+                    return {
+                        label: dep, data: allTimestamps.map(function(ts) { return tsMap[ts] !== undefined ? tsMap[ts] : null; }),
+                        borderColor: c.border, backgroundColor: c.bg, fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2, spanGaps: true
+                    };
+                });
+
+                var ctx2 = document.getElementById('sessionHistoryChart').getContext('2d');
+                if (sessionHistoryChart) sessionHistoryChart.destroy();
+
+                sessionHistoryChart = new Chart(ctx2, {
+                    type: 'line',
+                    data: { labels: chartLabels, datasets: datasets },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { labels: { color: '#8b949e', usePointStyle: true, pointStyle: 'rectRounded', font: { size: 11 } } },
+                            tooltip: { backgroundColor: '#1e2a3a', titleColor: '#e6edf3', bodyColor: '#8b949e', borderColor: '#2d3f52', borderWidth: 1 }
+                        },
+                        scales: {
+                            x: { ticks: { color: '#8b949e', font: { size: 10 }, maxTicksLimit: 15 }, grid: { color: 'rgba(45,63,82,0.3)' } },
+                            y: { beginAtZero: true, title: { display: true, text: 'Active Sessions', color: '#6e7681', font: { size: 11 } }, ticks: { color: '#8b949e', font: { size: 10 }, stepSize: 1 }, grid: { color: 'rgba(45,63,82,0.3)' } }
+                        }
+                    }
+                });
+            } catch (err) {
+                console.error('Failed to load session history:', err);
+            }
+        }
+
+        document.getElementById('sessionHistoryDeploy').addEventListener('change', function() {
+            loadSessionHistory();
+        });
+
+        // --- Individual Session Details ---
+        function formatEpochMs(ms) {
+            if (!ms) return '-';
+            var d = new Date(ms);
+            var y = d.getFullYear();
+            var mo = String(d.getMonth() + 1).padStart(2, '0');
+            var da = String(d.getDate()).padStart(2, '0');
+            var h = String(d.getHours()).padStart(2, '0');
+            var mi = String(d.getMinutes()).padStart(2, '0');
+            var s = String(d.getSeconds()).padStart(2, '0');
+            return y + '-' + mo + '-' + da + ' ' + h + ':' + mi + ':' + s;
+        }
+
+        function formatDurationMs(ms) {
+            if (!ms || ms <= 0) return '-';
+            if (ms < 1000) return ms + ' ms';
+            var secs = Math.floor(ms / 1000);
+            if (secs < 60) return secs + ' s';
+            var mins = Math.floor(secs / 60);
+            var remSecs = secs % 60;
+            if (mins < 60) return mins + 'm ' + remSecs + 's';
+            var hours = Math.floor(mins / 60);
+            var remMins = mins % 60;
+            return hours + 'h ' + remMins + 'm';
+        }
+
+        async function loadSessionDetails() {
+            try {
+                var deployFilter = document.getElementById('sessionDetailsDeploy').value;
+                var url = '/session-details';
+                if (deployFilter) url += '?deployment=' + encodeURIComponent(deployFilter);
+                var data = await fetchData(url);
+
+                var activeSessions = data.active_sessions || [];
+                var endedSessions = data.ended_sessions || [];
+                var allSessions = activeSessions.concat(endedSessions);
+
+                var totalCount = activeSessions.length + endedSessions.length;
+                document.getElementById('sessionDetailsCount').textContent = totalCount + ' sessions';
+
+                var depMap = {};
+                allSessions.forEach(function(s) { depMap[s.deployment] = true; });
+                var select = document.getElementById('sessionDetailsDeploy');
+                var currentVal = select.value;
+                var opts = '<option value="">All Deployments</option>';
+                Object.keys(depMap).sort().forEach(function(dep) {
+                    var sel = dep === currentVal ? ' selected' : '';
+                    opts += '<option value="' + escapeHtml(dep) + '"' + sel + '>' + escapeHtml(dep) + '</option>';
+                });
+                select.innerHTML = opts;
+
+                var showServer = allSessions.some(function(s) { return s.server_name != null; });
+                var colCount = showServer ? 8 : 7;
+
+                var thead = document.querySelector('#sessionDetailsTable thead tr');
+                if (thead) {
+                    var hdr = showServer ? '<th>Server</th>' : '';
+                    hdr += '<th>Session ID</th><th>Deployment</th><th>Start Time</th><th>End Time</th><th>Total Time</th><th>Thread</th><th>Status</th>';
+                    thead.innerHTML = hdr;
+                }
+
+                var tbody = document.getElementById('sessionDetailsBody');
+                if (allSessions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center; color: var(--text-muted); padding: 24px;">No individual sessions tracked yet. Snapshots collected every 30 seconds.</td></tr>';
+                    return;
+                }
+
+                var nowMs = Date.now();
+                var rows = allSessions.map(function(s) {
+                    var startMs = s.start_time_ms || 0;
+                    var endMs = s.end_time_ms || null;
+                    var duration = 0;
+                    if (endMs) {
+                        duration = endMs - startMs;
+                    } else if (startMs) {
+                        duration = nowMs - startMs;
+                    }
+                    var statusBadge = s.status === 'active'
+                        ? '<span class="badge badge-healthy">Active</span>'
+                        : '<span class="badge badge-warning">Expired</span>';
+                    var durationClass = duration > 300000 ? 'time-slow' : duration > 60000 ? 'time-medium' : '';
+                    var shortId = s.session_id || '-';
+                    if (shortId.length > 20) shortId = shortId.substring(0, 8) + '...' + shortId.substring(shortId.length - 8);
+                    var serverCell = showServer ? '<td class="mono" style="font-size:11px;"><span class="badge badge-info">' + escapeHtml(s.server_name || '') + '</span></td>' : '';
+                    return '<tr>'
+                        + serverCell
+                        + '<td class="mono" style="font-size: 11px;" title="' + escapeHtml(s.session_id || '') + '">' + escapeHtml(shortId) + '</td>'
+                        + '<td class="mono">' + escapeHtml(s.deployment || '-') + '</td>'
+                        + '<td class="mono" style="font-size: 11px; white-space: nowrap;">' + formatEpochMs(startMs) + '</td>'
+                        + '<td class="mono" style="font-size: 11px; white-space: nowrap;">' + (endMs ? formatEpochMs(endMs) : '<span style="color: var(--healthy)">-</span>') + '</td>'
+                        + '<td class="mono ' + durationClass + '">' + formatDurationMs(duration) + '</td>'
+                        + '<td class="mono" style="font-size: 11px;">' + (s.thread ? '<span class="thread-link" onclick="showThreadStack(\'' + escapeHtml(s.thread).replace(/'/g, "\\'") + '\')">' + escapeHtml(s.thread) + '</span>' : '-') + '</td>'
+                        + '<td>' + statusBadge + '</td>'
+                        + '</tr>';
+                });
+                paginateTable('sessionDetailsBody', rows);
+            } catch (err) {
+                console.error('Failed to load session details:', err);
+            }
+        }
+
+        document.getElementById('sessionDetailsDeploy').addEventListener('change', function() {
+            loadSessionDetails();
+        });
+
+        // --- Thread Stack Trace Modal ---
+        function closeThreadModal() {
+            document.getElementById('threadModal').classList.remove('active');
+        }
+
+        document.getElementById('threadModal').addEventListener('click', function(e) {
+            if (e.target === this) closeThreadModal();
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeThreadModal();
+        });
+
+        function highlightFrame(frame) {
+            if (/^(com\.redhat|org\.jboss|io\.undertow)/.test(frame)) {
+                return '<span class="stack-frame-jboss">' + escapeHtml(frame) + '</span>';
+            }
+            if (/^(java\.|javax\.|sun\.|jdk\.)/.test(frame)) {
+                return escapeHtml(frame);
+            }
+            return '<span class="stack-frame-app">' + escapeHtml(frame) + '</span>';
+        }
+
+        async function showThreadStack(threadName) {
+            var modal = document.getElementById('threadModal');
+            var title = document.getElementById('threadModalTitle');
+            var body = document.getElementById('threadModalBody');
+
+            title.textContent = threadName;
+            body.innerHTML = '<div style="color: var(--text-muted); padding: 20px; text-align: center;">Loading thread details...</div>';
+            modal.classList.add('active');
+
+            try {
+                var data = await fetchData('/thread-details');
+                var threads = data.threads || [];
+                var thread = null;
+                for (var i = 0; i < threads.length; i++) {
+                    if (threads[i].thread_name === threadName) {
+                        thread = threads[i];
+                        break;
+                    }
+                }
+
+                if (!thread) {
+                    body.innerHTML = '<div style="color: var(--text-muted); padding: 20px; text-align: center;">Thread "' + escapeHtml(threadName) + '" not found in current thread dump.<br><span style="font-size:12px;">It may have finished or returned to the pool.</span></div>';
+                    return;
+                }
+
+                var stateBadge = 'badge-info';
+                if (thread.state === 'RUNNABLE') stateBadge = 'badge-healthy';
+                else if (thread.state === 'BLOCKED') stateBadge = 'badge-critical';
+                else if (thread.state === 'WAITING' || thread.state === 'TIMED_WAITING') stateBadge = 'badge-warning';
+
+                var metaHtml = '<div class="thread-meta">'
+                    + '<div class="thread-meta-item"><span class="meta-label">State:</span> <span class="meta-value"><span class="badge ' + stateBadge + '">' + escapeHtml(thread.state) + '</span></span></div>'
+                    + '<div class="thread-meta-item"><span class="meta-label">ID:</span> <span class="meta-value">' + (thread.thread_id || '-') + '</span></div>'
+                    + '<div class="thread-meta-item"><span class="meta-label">Category:</span> <span class="meta-value">' + escapeHtml(thread.category || '-') + '</span></div>'
+                    + '<div class="thread-meta-item"><span class="meta-label">Task:</span> <span class="meta-value">' + escapeHtml(thread.task || '-') + '</span></div>'
+                    + '<div class="thread-meta-item"><span class="meta-label">Blocked:</span> <span class="meta-value">' + formatNumber(thread.blocked_count || 0) + 'x</span></div>'
+                    + '<div class="thread-meta-item"><span class="meta-label">Waited:</span> <span class="meta-value">' + formatNumber(thread.waited_count || 0) + 'x</span></div>';
+
+                if (thread.lock_name) {
+                    metaHtml += '<div class="thread-meta-item"><span class="meta-label">Lock:</span> <span class="meta-value">' + escapeHtml(thread.lock_name) + '</span></div>';
+                }
+                if (thread.lock_owner_name) {
+                    metaHtml += '<div class="thread-meta-item"><span class="meta-label">Lock Owner:</span> <span class="meta-value">' + escapeHtml(thread.lock_owner_name) + '</span></div>';
+                }
+                metaHtml += '</div>';
+
+                var stack = thread.stack_trace || [];
+                var stackHtml = '';
+                if (stack.length === 0) {
+                    stackHtml = '<div class="stack-trace-box" style="color: var(--text-muted); font-style: italic;">No stack trace available</div>';
+                } else {
+                    var frames = stack.map(function(frame, idx) {
+                        return '  at ' + highlightFrame(frame);
+                    }).join('\n');
+                    stackHtml = '<div style="margin-bottom: 8px; font-size: 12px; color: var(--text-muted);">Stack Trace (' + stack.length + ' frames)</div>'
+                        + '<div class="stack-trace-box">' + frames + '</div>';
+                }
+
+                body.innerHTML = metaHtml + stackHtml;
+            } catch (err) {
+                body.innerHTML = '<div style="color: var(--critical); padding: 20px; text-align: center;">Failed to load thread details: ' + escapeHtml(err.message) + '</div>';
+            }
+        }
+
+        // --- Web AI Analysis ---
+        async function loadWebAIAnalysis() {
+            var el = document.getElementById('aiWebContentTop');
+            el.className = 'ai-content loading';
+            el.textContent = 'Analyzing web server performance and session health...';
+            try {
+                var text = await fetchAPI('/jboss/ask?q=Analyze web server performance and HTTP session health');
+                el.className = 'ai-content';
+                el.textContent = text;
+            } catch (err) {
+                el.className = 'ai-content';
+                el.textContent = 'Failed to load AI analysis: ' + err.message;
+                showToast('AI analysis failed: ' + err.message, 'error');
+            }
+        }
+
+        async function loadWebData() {
+            try {
+                var results = await Promise.all([
+                    fetchData('/web'),
+                    fetchData('/sessions').catch(function() { return { sessions: [] }; })
+                ]);
+                var webResponse = results[0];
+                var sessResponse = results[1];
+
+                if (webResponse && webResponse.web) {
+                    listeners = webResponse.web.listeners || [];
+                    servlets = webResponse.web.deployments || [];
+                }
+                sessions = (sessResponse && sessResponse.sessions) ? sessResponse.sessions : [];
+            } catch (err) {
+                console.error('Failed to fetch web data:', err);
+                showToast('Failed to load web data: ' + err.message, 'error');
+            }
+        }
+
+        // ========== Refresh All ==========
+
+        async function refreshAll() {
+            await loadWebData();
+            renderStatCards();
+            renderListenersTable();
+            renderThroughputChart();
+            renderSessionsTable();
+            renderServletsTable();
+            loadSessionHistory();
+            loadSessionDetails();
+        }
+
+        setupAutoRefresh(refreshAll);
+        refreshAll();
+    </script>
+</body>
+</html>

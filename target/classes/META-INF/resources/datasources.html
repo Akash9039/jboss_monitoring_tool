@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Datasources - JBoss Monitor</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .ds-type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            letter-spacing: 0.5px;
+            border: 1px solid transparent;
+        }
+        .ds-type-badge.normal {
+            background: rgba(0, 212, 255, 0.06);
+            color: var(--accent);
+            border-color: rgba(0, 212, 255, 0.15);
+        }
+        .ds-type-badge.xa {
+            background: rgba(255, 170, 0, 0.06);
+            color: var(--warning);
+            border-color: rgba(255, 170, 0, 0.15);
+        }
+        .enabled-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .enabled-dot.yes { background: var(--healthy); box-shadow: 0 0 6px rgba(0, 255, 136, 0.4); }
+        .enabled-dot.no { background: var(--critical); box-shadow: 0 0 6px rgba(255, 34, 68, 0.4); }
+        .thread-link {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+            text-underline-offset: 2px;
+        }
+        .thread-link:hover { color: #40e0ff; text-decoration-style: solid; }
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.75); z-index: 9999; justify-content: center; align-items: center;
+            backdrop-filter: blur(4px);
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-box {
+            background: rgba(8,18,35,0.95); border: 1px solid rgba(0,212,255,0.15);
+            border-radius: 8px; width: 700px; max-width: 90vw; max-height: 85vh;
+            display: flex; flex-direction: column;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.6), 0 0 30px rgba(0,212,255,0.05);
+            backdrop-filter: blur(12px);
+        }
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 14px 20px; border-bottom: 1px solid rgba(0,212,255,0.08);
+        }
+        .modal-header h3 { margin: 0; font-size: 14px; color: var(--text-primary); font-family: var(--font-mono); }
+        .modal-close {
+            background: none; border: none; color: var(--text-muted);
+            font-size: 22px; cursor: pointer; padding: 0 4px; line-height: 1;
+        }
+        .modal-close:hover { color: var(--accent); }
+        .modal-body { padding: 16px 20px; overflow-y: auto; }
+        .thread-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+        .thread-meta-item {
+            font-size: 11px; color: var(--text-secondary);
+            background: rgba(0,212,255,0.03); padding: 4px 10px; border-radius: 3px;
+            border: 1px solid rgba(0,212,255,0.08);
+            font-family: var(--font-mono);
+        }
+        .thread-meta-item strong { color: var(--accent); margin-left: 4px; }
+        .stack-trace-box {
+            background: rgba(0,0,0,0.4); border: 1px solid rgba(0,212,255,0.08);
+            border-radius: 4px; padding: 12px; font-family: var(--font-mono);
+            font-size: 11px; line-height: 1.6; max-height: 400px; overflow-y: auto;
+            white-space: pre-wrap; word-break: break-all;
+        }
+        .stack-frame-app { color: #00d4ff; }
+        .stack-frame-jboss { color: #ffaa00; }
+        .data-table tr.clickable-row {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .data-table tr.clickable-row:hover td {
+            background: rgba(0, 212, 255, 0.03);
+        }
+        .data-table tr.clickable-row.selected td {
+            background: rgba(0, 212, 255, 0.05);
+            border-color: rgba(0, 212, 255, 0.15);
+        }
+        .detail-section {
+            margin-bottom: 20px;
+        }
+        .detail-section:last-child {
+            margin-bottom: 0;
+        }
+        .detail-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+            font-family: var(--font-mono);
+        }
+        .pool-util-bar {
+            margin-top: 16px;
+        }
+        .pool-util-bar .util-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            font-family: var(--font-mono);
+        }
+        .pool-util-bar .util-label .util-pct {
+            font-family: var(--font-mono);
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .flush-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .no-selection {
+            text-align: center;
+            padding: 48px 24px;
+            color: var(--text-muted);
+        }
+        .no-selection .ns-icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+            opacity: 0.2;
+        }
+        .no-selection p {
+            font-size: 12px;
+            font-family: var(--font-mono);
+        }
+        .grid-detail {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+        @media (max-width: 1100px) {
+            .grid-detail { grid-template-columns: 1fr; }
+        }
+
+        /* Tabs */
+        .tab-bar {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid var(--border-color);
+            margin: -20px -24px 20px -24px;
+            padding: 0 24px;
+        }
+        .tab-btn {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            position: relative;
+            transition: color 0.2s;
+            white-space: nowrap;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .tab-btn:hover {
+            color: var(--text-secondary);
+        }
+        .tab-btn.active {
+            color: var(--accent);
+        }
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--accent);
+            border-radius: 2px 2px 0 0;
+            box-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+        }
+        .tab-btn .tab-count {
+            display: inline-block;
+            background: rgba(0, 212, 255, 0.08);
+            color: var(--accent);
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 6px;
+            border-radius: 3px;
+            margin-left: 6px;
+            font-family: var(--font-mono);
+            border: 1px solid rgba(0, 212, 255, 0.15);
+        }
+        .tab-panel {
+            display: none;
+        }
+        .tab-panel.active {
+            display: block;
+        }
+        /* Row alert for slow queries (>= 10s) */
+        @keyframes rowPulse {
+            0%, 100% { background: rgba(255, 34, 68, 0.08); }
+            50% { background: rgba(255, 34, 68, 0.18); }
+        }
+        .data-table tr.row-alert td {
+            animation: rowPulse 2s ease-in-out infinite;
+            border-color: rgba(255, 34, 68, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar"></div>
+    <div class="main-content">
+        <div id="pageHeader"></div>
+        <div class="content">
+            <!-- AI Analysis Panel -->
+            <div class="ai-panel">
+                <div class="ai-header">&#9733; AI Analysis</div>
+                <div class="ai-content" id="aiContent">Click the button below to run AI datasource analysis.</div>
+                <div style="margin-top: 12px;">
+                    <button class="btn btn-primary" onclick="loadAiAnalysis()">&#9733; Analyze Datasources</button>
+                </div>
+            </div>
+
+            <!-- Stat Cards -->
+            <div class="stats-row" id="statCards">
+                <div class="stat-card">
+                    <div class="stat-label">Total Datasources</div>
+                    <div class="stat-value" id="statTotalDs">-</div>
+                    <div class="stat-sub">Configured pools</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Active Connections</div>
+                    <div class="stat-value" id="statActiveConns">-</div>
+                    <div class="stat-sub">Across all pools</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Available Connections</div>
+                    <div class="stat-value" id="statAvailConns">-</div>
+                    <div class="stat-sub">Ready to serve</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Worst Pool Health</div>
+                    <div class="stat-value" id="statWorstHealth">-</div>
+                    <div class="stat-sub" id="statWorstHealthSub">-</div>
+                </div>
+            </div>
+
+            <!-- Datasource Overview Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Datasource Overview</h3>
+                    <span style="font-size: 12px; color: var(--text-muted);">Click a row to view details</span>
+                </div>
+                <div class="card-body no-padding">
+                    <div style="overflow-x: auto;">
+                        <table class="data-table" id="dsTable">
+                            <thead id="dsTableHead">
+                                <tr>
+                                    <th>Name</th>
+                                    <th>JNDI Name</th>
+                                    <th>Driver</th>
+                                    <th>Type</th>
+                                    <th>Enabled</th>
+                                    <th>Active / Max</th>
+                                    <th>In Use</th>
+                                    <th>Wait Count</th>
+                                    <th>Timed Out</th>
+                                    <th>Avg Get Time</th>
+                                    <th>Health</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dsTableBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Connection Pool Utilization Chart -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Connection Pool Utilization</h3>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="poolChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detail + Actions Grid -->
+            <div class="grid-detail">
+                <!-- Pool Details -->
+                <div class="card" id="detailCard">
+                    <div class="card-header">
+                        <h3>Pool Details</h3>
+                        <span class="badge badge-info" id="detailDsName" style="display:none;"></span>
+                    </div>
+                    <div class="card-body" id="detailBody">
+                        <div class="no-selection">
+                            <div class="ns-icon">&#9707;</div>
+                            <p>Select a datasource from the table above to view pool details.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pool Actions -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Pool Actions</h3>
+                    </div>
+                    <div class="card-body">
+                        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+                            Manage the connection pool for the selected datasource. These actions are executed immediately on the server.
+                        </p>
+                        <div class="flush-actions">
+                            <button class="btn" id="btnFlushIdle" onclick="flushConnections('idle')">
+                                &#9654; Flush Idle
+                            </button>
+                            <button class="btn btn-danger" id="btnFlushAll" onclick="flushConnections('all')">
+                                &#9654; Flush All
+                            </button>
+                            <button class="btn" id="btnFlushInvalid" onclick="flushConnections('invalid')">
+                                &#9654; Flush Invalid
+                            </button>
+                        </div>
+                        <div style="margin-top: 20px;">
+                            <div class="detail-section-title">Action Log</div>
+                            <div id="actionLog" style="font-size: 12px; color: var(--text-muted); font-family: var(--font-mono);">
+                                No actions performed yet.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Query Monitoring — Tabbed Card -->
+            <div class="card" id="queryTabsCard">
+                <div class="card-header">
+                    <h3>Query Monitoring</h3>
+                    <span class="badge badge-info" id="queryTabDsName" style="display:none;"></span>
+                </div>
+                <div class="card-body">
+                    <div class="tab-bar">
+                        <button class="tab-btn active" onclick="switchQueryTab('history', this)">Query History</button>
+                        <button class="tab-btn" onclick="switchQueryTab('sessionHistory', this)">DB Session History</button>
+                        <button class="tab-btn" onclick="switchQueryTab('performance', this)">Pool Metrics</button>
+                        <button class="tab-btn" onclick="switchQueryTab('active', this)">Active Sessions</button>
+                        <button class="tab-btn" onclick="switchQueryTab('dbThreads', this)">DB Connection Threads</button>
+                    </div>
+
+                    <!-- Tab 1: Query History -->
+                    <div class="tab-panel active" id="tabHistory">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">All executed queries sorted by execution time (longest first)</p>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 11px; color: var(--text-muted);" id="queryHistorySource"></span>
+                                <button class="btn btn-primary" onclick="loadQueryHistory()">&#9654; Load Queries</button>
+                            </div>
+                        </div>
+                        <div id="queryHistoryBody">
+                            <p style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 32px 0;">Select a datasource from the table above, then click "Load Queries".</p>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: DB Session History -->
+                    <div class="tab-panel" id="tabSessionHistory">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Individual SQL query executions with timing details</p>
+                            <button class="btn btn-primary" onclick="loadSessionHistory()">&#9654; Load History</button>
+                        </div>
+                        <div id="sessionHistoryBody">
+                            <p style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 32px 0;">Select a datasource from the table above, then click "Load History".</p>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Pool Metrics -->
+                    <div class="tab-panel" id="tabPerformance">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Connection pool timing and blocking indicators from JBoss</p>
+                            <button class="btn" onclick="loadQueryPerformance()">&#8635; Load Metrics</button>
+                        </div>
+                        <div id="queryPerfBody">
+                            <p style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 32px 0;">Select a datasource from the table above, then click "Load Metrics".</p>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Active Sessions -->
+                    <div class="tab-panel" id="tabActive">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Currently running database sessions and queries</p>
+                            <button class="btn btn-primary" onclick="loadActiveSessions()">&#9654; Load Sessions</button>
+                        </div>
+                        <div id="activeSessionsBody">
+                            <p style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 32px 0;">Select a datasource from the table above, then click "Load Sessions".</p>
+                        </div>
+                    </div>
+
+                    <!-- Tab 5: DB Connection Threads -->
+                    <div class="tab-panel" id="tabDbThreads">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">JBoss threads currently executing JDBC / database operations</p>
+                            <button class="btn btn-primary" onclick="loadDbThreads()">&#9654; Load DB Threads</button>
+                        </div>
+                        <div id="dbThreadsBody">
+                            <p style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 32px 0;">Click "Load DB Threads" to view JBoss threads involved in database operations.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Thread Stack Trace Modal -->
+    <div class="modal-overlay" id="threadModal" onclick="if(event.target===this)closeThreadModal()">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 id="threadModalTitle">Thread Details</h3>
+                <button class="modal-close" onclick="closeThreadModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="threadModalBody">
+                <p style="color: var(--text-muted);">Loading...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+    // -----------------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------------
+    let datasources = [];
+    let selectedDs = null;
+    let poolChart = null;
+
+    // -----------------------------------------------------------------------
+    // Initialization
+    // -----------------------------------------------------------------------
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('sidebar').innerHTML = renderSidebar();
+        document.getElementById('pageHeader').innerHTML = renderPageHeader(
+            'Datasources',
+            'Monitor JDBC connection pools, utilization, and cache statistics'
+        );
+        setActiveNav();
+
+        loadDatasources();
+        setupAutoRefresh(loadDatasources);
+    });
+
+    async function loadDatasources() {
+        try {
+            const data = await fetchData('/datasources');
+            datasources = (data.datasources || []).map(normalizeDatasource);
+            renderStatCards(datasources);
+            renderDsTable(datasources);
+            renderPoolChart(datasources);
+        } catch (err) {
+            showToast('Failed to load datasources: ' + err.message, 'error');
+        }
+    }
+
+    // Map API snake_case response to the field names used by rendering functions
+    function normalizeDatasource(raw) {
+        const pool = raw.pool || {};
+        const jdbc = raw.jdbc || {};
+        const dsType = (raw.type || '').toLowerCase();
+        return {
+            name: raw.name,
+            server_name: raw.server_name || null,
+            jndiName: raw.jndi_name || '',
+            driver: raw.driver_name || '',
+            type: dsType.includes('xa') ? 'xa' : 'normal',
+            enabled: !!raw.enabled,
+            connectionUrl: raw.connection_url || '',
+            statisticsEnabled: !!raw.statistics_enabled,
+            pool: {
+                minSize: pool.min_pool_size ?? 0,
+                maxSize: pool.max_pool_size ?? 0,
+                activeCount: pool.active_count ?? 0,
+                availableCount: pool.available_count ?? 0,
+                maxUsedCount: pool.max_used_count ?? 0,
+                createdCount: pool.created_count ?? 0,
+                destroyedCount: pool.destroyed_count ?? 0,
+                inUseCount: pool.in_use_count ?? 0,
+                idleCount: pool.idle_count ?? 0,
+                timedOut: pool.timed_out ?? 0,
+                waitCount: pool.wait_count ?? 0,
+                avgBlockingTime: pool.average_blocking_time_ms ?? 0,
+                avgCreationTime: pool.average_creation_time_ms ?? 0,
+                avgGetTime: pool.average_get_time_ms ?? 0,
+                totalBlockingTime: pool.total_blocking_time_ms ?? 0,
+                preparedStatementCacheAccess: jdbc.prepared_statement_cache_access_count ?? 0,
+                preparedStatementCacheHits: jdbc.prepared_statement_cache_hit_count ?? 0,
+                preparedStatementCacheMisses: jdbc.prepared_statement_cache_miss_count ?? 0,
+                preparedStatementCacheCurrentSize: jdbc.prepared_statement_cache_current_size ?? 0
+            },
+            health: raw.health || 'UNKNOWN'
+        };
+    }
+
+    async function refreshAll() {
+        await loadDatasources();
+    }
+
+    // -----------------------------------------------------------------------
+    // Stat Cards
+    // -----------------------------------------------------------------------
+    function renderStatCards(datasources) {
+        const enabled = datasources.filter(d => d.enabled);
+        const totalActive = enabled.reduce((s, d) => s + d.pool.activeCount, 0);
+        const totalAvail = enabled.reduce((s, d) => s + d.pool.availableCount, 0);
+
+        document.getElementById('statTotalDs').textContent = formatNumber(datasources.length);
+        document.getElementById('statActiveConns').textContent = formatNumber(totalActive);
+        document.getElementById('statAvailConns').textContent = formatNumber(totalAvail);
+
+        // Worst health
+        const healthPriority = { CRITICAL: 0, WARNING: 1, MODERATE: 2, DEGRADED: 3, HEALTHY: 4, UNKNOWN: 5 };
+        const sorted = [...enabled].sort((a, b) =>
+            (healthPriority[a.health] ?? 5) - (healthPriority[b.health] ?? 5)
+        );
+        const worst = sorted[0];
+        if (worst) {
+            const el = document.getElementById('statWorstHealth');
+            el.innerHTML = healthBadge(worst.health);
+            document.getElementById('statWorstHealthSub').textContent = worst.name;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Datasource Table
+    // -----------------------------------------------------------------------
+    function renderDsTable(list) {
+        var showServer = list.some(function(d) { return d.server_name != null; });
+
+        var thead = document.getElementById('dsTableHead');
+        var headerHtml = '<tr>';
+        if (showServer) headerHtml += '<th>Server</th>';
+        headerHtml += '<th>Name</th><th>JNDI Name</th><th>Driver</th><th>Type</th><th>Enabled</th><th>Active / Max</th><th>In Use</th><th>Wait Count</th><th>Timed Out</th><th>Avg Get Time</th><th>Health</th></tr>';
+        thead.innerHTML = headerHtml;
+
+        const tbody = document.getElementById('dsTableBody');
+        var rows = list.map((ds, idx) => {
+            const p = ds.pool;
+            var serverCell = showServer
+                ? '<td><span class="badge badge-info">' + escapeHtml(ds.server_name || '') + '</span></td>'
+                : '';
+            return `
+                <tr class="clickable-row${selectedDs === idx ? ' selected' : ''}"
+                    data-index="${idx}" onclick="selectDatasource(${idx})">
+                    ${serverCell}
+                    <td><strong>${escapeHtml(ds.name)}</strong></td>
+                    <td class="mono" style="font-size:11px; color: var(--text-secondary);">${escapeHtml(ds.jndiName)}</td>
+                    <td class="mono">${escapeHtml(ds.driver)}</td>
+                    <td><span class="ds-type-badge ${ds.type}">${ds.type === 'xa' ? 'XA' : 'Normal'}</span></td>
+                    <td><span class="enabled-dot ${ds.enabled ? 'yes' : 'no'}"></span>${ds.enabled ? 'Yes' : 'No'}</td>
+                    <td class="mono">${formatNumber(p.activeCount)} / ${formatNumber(p.maxSize)}</td>
+                    <td class="mono">${formatNumber(p.inUseCount)}</td>
+                    <td class="mono">${formatNumber(p.waitCount)}</td>
+                    <td class="mono" style="${p.timedOut > 0 ? 'color:var(--critical);' : ''}">${formatNumber(p.timedOut)}</td>
+                    <td class="mono">${formatMs(p.avgGetTime)}</td>
+                    <td>${healthBadge(ds.health)}</td>
+                </tr>
+            `;
+        });
+        paginateTable('dsTableBody', rows);
+    }
+
+    // -----------------------------------------------------------------------
+    // Select datasource -> fetch detail from API and render
+    // -----------------------------------------------------------------------
+    async function selectDatasource(idx) {
+        selectedDs = idx;
+        const ds = datasources[idx];
+
+        // Highlight selected row
+        document.querySelectorAll('.clickable-row').forEach(r => r.classList.remove('selected'));
+        const row = document.querySelector(`tr[data-index="${idx}"]`);
+        if (row) row.classList.add('selected');
+
+        // Show name badges
+        const badge = document.getElementById('detailDsName');
+        badge.style.display = 'inline-block';
+        badge.textContent = ds.name;
+        const tabBadge = document.getElementById('queryTabDsName');
+        tabBadge.style.display = 'inline-block';
+        tabBadge.textContent = ds.name;
+
+        // Show loading state while fetching detail
+        const body = document.getElementById('detailBody');
+        body.innerHTML = `
+            <div class="skeleton skeleton-line"></div>
+            <div class="skeleton skeleton-line medium"></div>
+            <div class="skeleton skeleton-line short"></div>
+        `;
+
+        try {
+            const detailRaw = await fetchData('/datasources/' + encodeURIComponent(ds.name));
+            const detail = normalizeDatasource(detailRaw.datasource || detailRaw);
+            renderDetail(detail);
+        } catch (err) {
+            // Fall back to the data we already have from the list
+            renderDetail(ds);
+        }
+    }
+
+    function renderDetail(ds) {
+        const p = ds.pool;
+        const utilPct = p.maxSize > 0
+            ? Math.round((p.activeCount / p.maxSize) * 100)
+            : 0;
+        const cacheHitRate = p.preparedStatementCacheAccess > 0
+            ? ((p.preparedStatementCacheHits / p.preparedStatementCacheAccess) * 100).toFixed(1)
+            : 0;
+
+        const body = document.getElementById('detailBody');
+        body.innerHTML = `
+            <div class="detail-section">
+                <div class="detail-section-title">Connection Info</div>
+                ${createMetricRow('JNDI Name', escapeHtml(ds.jndiName))}
+                ${createMetricRow('Driver', escapeHtml(ds.driver))}
+                ${createMetricRow('Connection URL', escapeHtml(ds.connectionUrl))}
+                ${createMetricRow('Statistics Enabled', ds.statisticsEnabled ? 'Yes' : 'No')}
+            </div>
+            <div class="detail-section">
+                <div class="detail-section-title">Connection Pool</div>
+                ${createMetricRow('Min Pool Size', formatNumber(p.minSize))}
+                ${createMetricRow('Max Pool Size', formatNumber(p.maxSize))}
+                ${createMetricRow('Active', formatNumber(p.activeCount))}
+                ${createMetricRow('Available', formatNumber(p.availableCount))}
+                ${createMetricRow('Idle', formatNumber(p.idleCount))}
+                ${createMetricRow('In Use', formatNumber(p.inUseCount))}
+                ${createMetricRow('Max Used', formatNumber(p.maxUsedCount))}
+                ${createMetricRow('Created (total)', formatNumber(p.createdCount))}
+                ${createMetricRow('Destroyed (total)', formatNumber(p.destroyedCount))}
+            </div>
+            <div class="detail-section">
+                <div class="detail-section-title">Timing</div>
+                ${createMetricRow('Avg Blocking Time', formatMs(p.avgBlockingTime))}
+                ${createMetricRow('Avg Creation Time', formatMs(p.avgCreationTime))}
+                ${createMetricRow('Avg Get Time', formatMs(p.avgGetTime))}
+                ${createMetricRow('Total Blocking Time', formatMs(p.totalBlockingTime))}
+            </div>
+            <div class="detail-section">
+                <div class="detail-section-title">JDBC Statement Cache</div>
+                ${createMetricRow('Cache Hits', formatNumber(p.preparedStatementCacheHits))}
+                ${createMetricRow('Cache Misses', formatNumber(p.preparedStatementCacheMisses))}
+                ${createMetricRow('Total Access', formatNumber(p.preparedStatementCacheAccess))}
+                ${createMetricRow('Current Size', formatNumber(p.preparedStatementCacheCurrentSize))}
+                ${createMetricRow('Hit Rate', cacheHitRate + '%')}
+            </div>
+            <div class="pool-util-bar">
+                <div class="util-label">
+                    <span>Pool Utilization</span>
+                    <span class="util-pct">${utilPct}%</span>
+                </div>
+                ${createProgressBar(utilPct, { warning: 60, critical: 85 })}
+            </div>
+        `;
+    }
+
+    // -----------------------------------------------------------------------
+    // Connection Pool Utilization Chart (grouped bar)
+    // -----------------------------------------------------------------------
+    function renderPoolChart(list) {
+        if (poolChart) {
+            poolChart.destroy();
+            poolChart = null;
+        }
+        const enabled = list.filter(d => d.enabled);
+        const labels = enabled.map(d => d.server_name ? d.server_name + ' - ' + d.name : d.name);
+        const activeData = enabled.map(d => d.pool.activeCount);
+        const maxData = enabled.map(d => d.pool.maxSize);
+
+        const ctx = document.getElementById('poolChart').getContext('2d');
+        poolChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Active',
+                        data: activeData,
+                        backgroundColor: '#3987e5',
+                        borderRadius: { topLeft: 4, topRight: 4 },
+                        borderSkipped: 'bottom',
+                        maxBarThickness: 24
+                    },
+                    {
+                        label: 'Max Pool Size',
+                        data: maxData,
+                        backgroundColor: '#d95926',
+                        borderRadius: { topLeft: 4, topRight: 4 },
+                        borderSkipped: 'bottom',
+                        maxBarThickness: 24
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            color: '#8b949e',
+                            font: { size: 12 },
+                            usePointStyle: true,
+                            pointStyle: 'rectRounded',
+                            padding: 16
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: '#1e2a3a',
+                        titleColor: '#e6edf3',
+                        bodyColor: '#8b949e',
+                        borderColor: '#2d3f52',
+                        borderWidth: 1,
+                        padding: 12,
+                        displayColors: true,
+                        callbacks: {
+                            label: function(ctx) {
+                                return ' ' + ctx.dataset.label + ': ' + formatNumber(ctx.parsed.y);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: 'rgba(45, 63, 82, 0.5)',
+                            lineWidth: 1
+                        },
+                        ticks: {
+                            color: '#8b949e',
+                            font: { size: 12 }
+                        },
+                        border: {
+                            color: '#2d3f52'
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(45, 63, 82, 0.5)',
+                            lineWidth: 1
+                        },
+                        ticks: {
+                            color: '#8b949e',
+                            font: { size: 12 },
+                            callback: function(value) {
+                                return formatNumber(value);
+                            }
+                        },
+                        border: {
+                            color: '#2d3f52'
+                        }
+                    }
+                },
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                }
+            }
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Flush Actions — POST to MCP REST API
+    // -----------------------------------------------------------------------
+    async function flushConnections(type) {
+        if (selectedDs === null) {
+            showToast('Select a datasource first', 'error');
+            return;
+        }
+        const ds = datasources[selectedDs];
+        const flushTypeMap = {
+            idle: 'flush-idle-connection-in-pool',
+            all: 'flush-all-connection-in-pool',
+            invalid: 'flush-invalid-connection-in-pool'
+        };
+        const labels = {
+            idle: 'idle connections',
+            all: 'ALL connections',
+            invalid: 'invalid connections'
+        };
+
+        showToast(`Flushing ${labels[type]} for ${ds.name}...`, 'info');
+
+        try {
+            const resp = await fetch(
+                `${MCP_API}/datasources/${encodeURIComponent(ds.name)}/flush`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ flush_type: flushTypeMap[type] })
+                }
+            );
+            const result = await resp.json();
+            if (resp.ok) {
+                showToast(result.message || `Successfully flushed ${labels[type]} for ${ds.name}`, 'success');
+            } else {
+                showToast(result.error || `Flush failed for ${ds.name}`, 'error');
+            }
+        } catch (err) {
+            showToast(`Flush failed: ${err.message}`, 'error');
+        }
+
+        const log = document.getElementById('actionLog');
+        const time = new Date().toLocaleTimeString();
+        const entry = document.createElement('div');
+        entry.style.marginBottom = '4px';
+        entry.textContent = `[${time}] Flushed ${labels[type]} on ${ds.name}`;
+        if (log.textContent === 'No actions performed yet.') {
+            log.textContent = '';
+        }
+        log.prepend(entry);
+    }
+
+    // -----------------------------------------------------------------------
+    // Query Performance
+    // -----------------------------------------------------------------------
+    async function loadQueryPerformance() {
+        const body = document.getElementById('queryPerfBody');
+        if (!selectedDs && datasources.length > 0) {
+            selectedDs = 0;
+        }
+        if (selectedDs === null || !datasources[selectedDs]) {
+            body.innerHTML = '<p style="font-size: 13px; color: var(--warning);">Please select a datasource first.</p>';
+            return;
+        }
+
+        const ds = datasources[selectedDs];
+        body.innerHTML = '<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line medium"></div>';
+
+        try {
+            const data = await fetchData('/datasources/' + encodeURIComponent(ds.name) + '/queries');
+            if (data.error) {
+                body.innerHTML = '<p style="color: var(--critical);">Error: ' + escapeHtml(data.error) + '</p>';
+                return;
+            }
+
+            const qp = data.query_performance;
+            const cu = qp.connection_usage;
+            const ca = qp.connection_acquisition;
+            const bl = qp.blocking;
+            const ws = qp.wait_stats;
+            const ps = qp.prepared_statements;
+            const qc = qp.query_config;
+            const health = qp.health;
+
+            body.innerHTML = `
+                <div style="margin-bottom: 16px;">
+                    <span style="font-size: 13px; font-weight: 600;">Datasource: ${escapeHtml(ds.name)}</span>
+                    ${healthBadge(health)}
+                </div>
+                <div class="grid-detail" style="gap: 16px;">
+                    <div>
+                        <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Connection Usage Time (Query Duration Indicator)</div>
+                        ${createMetricRow('Avg Usage Time', formatMs(cu.average_usage_time_ms))}
+                        ${createMetricRow('Max Usage Time', formatMs(cu.max_usage_time_ms))}
+                        ${createMetricRow('Total Usage Time', formatMs(cu.total_usage_time_ms))}
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">${escapeHtml(cu.description)}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Connection Acquisition</div>
+                        ${createMetricRow('Avg Get Time', formatMs(ca.average_get_time_ms))}
+                        ${createMetricRow('Max Get Time', formatMs(ca.max_get_time_ms))}
+                        ${createMetricRow('Avg Creation Time', formatMs(ca.average_creation_time_ms))}
+                        ${createMetricRow('Max Creation Time', formatMs(ca.max_creation_time_ms))}
+                    </div>
+                    <div>
+                        <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Blocking (Pool Exhaustion from Slow Queries)</div>
+                        ${createMetricRow('Avg Blocking Time', formatMs(bl.average_blocking_time_ms))}
+                        ${createMetricRow('Max Blocking Time', formatMs(bl.max_blocking_time_ms))}
+                        ${createMetricRow('Total Blocking Time', formatMs(bl.total_blocking_time_ms))}
+                        ${createMetricRow('Blocking Failures', formatNumber(bl.blocking_failure_count))}
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">${escapeHtml(bl.description)}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Wait Statistics</div>
+                        ${createMetricRow('Wait Count', formatNumber(ws.wait_count))}
+                        ${createMetricRow('Max Wait Count', formatNumber(ws.max_wait_count))}
+                        ${createMetricRow('Max Wait Time', formatMs(ws.max_wait_time_ms))}
+                        ${createMetricRow('Timed Out', formatNumber(ws.timed_out))}
+                    </div>
+                    <div>
+                        <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Prepared Statement Cache</div>
+                        ${createMetricRow('Cache Accesses', formatNumber(ps.cache_access_count))}
+                        ${createMetricRow('Cache Hits', formatNumber(ps.cache_hit_count))}
+                        ${createMetricRow('Cache Misses', formatNumber(ps.cache_miss_count))}
+                        ${createMetricRow('Cache Size', formatNumber(ps.cache_current_size))}
+                        ${ps.cache_access_count > 0 ? createMetricRow('Hit Ratio', ((ps.cache_hit_count / ps.cache_access_count) * 100).toFixed(1) + '%') : ''}
+                    </div>
+                    <div>
+                        <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Query Configuration</div>
+                        ${createMetricRow('Query Timeout', qc.query_timeout != null ? qc.query_timeout + 's' : 'Not set')}
+                        ${createMetricRow('TX Query Timeout', qc.set_tx_query_timeout ? 'Enabled' : 'Disabled')}
+                        ${createMetricRow('Blocking Timeout', qc.blocking_timeout_wait_millis != null ? qc.blocking_timeout_wait_millis + ' ms' : 'Default')}
+                        ${createMetricRow('Idle Timeout', qc.idle_timeout_minutes != null ? qc.idle_timeout_minutes + ' min' : 'Default')}
+                        ${createMetricRow('Validate on Match', qc.validate_on_match != null ? String(qc.validate_on_match) : 'Not set')}
+                        ${createMetricRow('Background Validation', qc.background_validation != null ? String(qc.background_validation) : 'Not set')}
+                    </div>
+                </div>
+            `;
+        } catch (err) {
+            body.innerHTML = '<p style="color: var(--critical);">Failed to load query performance: ' + escapeHtml(err.message) + '</p>';
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tab switching
+    // -----------------------------------------------------------------------
+    function switchQueryTab(tabId, btn) {
+        document.querySelectorAll('#queryTabsCard .tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#queryTabsCard .tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        var panelMap = { history: 'tabHistory', sessionHistory: 'tabSessionHistory', performance: 'tabPerformance', active: 'tabActive', dbThreads: 'tabDbThreads' };
+        document.getElementById(panelMap[tabId]).classList.add('active');
+    }
+
+    // -----------------------------------------------------------------------
+    // Active Sessions (inside tab)
+    // -----------------------------------------------------------------------
+    function renderSessionRows(sessions) {
+        return sessions.map(function(q) {
+            var runtime = parseFloat(q.runtime_seconds || 0);
+            var runtimeClass = runtime > 30 ? 'color: var(--critical); font-weight: 600;' :
+                                runtime > 10 ? 'color: var(--warning); font-weight: 600;' : '';
+            var stateClass = q.state === 'active' ? 'healthy' :
+                              q.state === 'idle in transaction' ? 'warning' : 'info';
+            var queryText = (q.query || '').length > 200
+                ? q.query.substring(0, 200) + '...'
+                : (q.query || '-');
+            return '<tr>'
+                + '<td class="mono">' + (q.pid || '-') + '</td>'
+                + '<td>' + escapeHtml(q.usename || '-') + '</td>'
+                + '<td>' + escapeHtml(q.datname || '-') + '</td>'
+                + '<td><span class="badge badge-' + stateClass + '">' + escapeHtml(q.state || '-') + '</span></td>'
+                + '<td class="mono" style="' + runtimeClass + '">' + runtime.toFixed(2) + 's</td>'
+                + '<td class="mono" style="font-size: 11px; max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + escapeHtml(q.query || '') + '">' + escapeHtml(queryText) + '</td>'
+                + '<td style="font-size: 11px;">' + escapeHtml(q.wait_event || '-') + '</td>'
+                + '</tr>';
+        }).join('');
+    }
+
+    async function loadActiveSessions() {
+        var body = document.getElementById('activeSessionsBody');
+        if (!selectedDs && datasources.length > 0) selectedDs = 0;
+        if (selectedDs === null || !datasources[selectedDs]) {
+            body.innerHTML = '<p style="font-size: 13px; color: var(--warning);">Please select a datasource first.</p>';
+            return;
+        }
+        var ds = datasources[selectedDs];
+        body.innerHTML = '<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line medium"></div>';
+
+        try {
+            var data = await fetchData('/datasources/' + encodeURIComponent(ds.name) + '/active-queries');
+            if (data.error) {
+                body.innerHTML = '<p style="color: var(--critical);">Error: ' + escapeHtml(data.error) + '</p>';
+                return;
+            }
+            if (data.status === 'limited' || data.status === 'unsupported') {
+                body.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-muted);">'
+                    + '<p style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">'
+                    + escapeHtml(data.db_type.toUpperCase()) + ' Database</p>'
+                    + '<p style="font-size: 12px;">' + escapeHtml(data.message) + '</p></div>';
+                return;
+            }
+            var sessions = data.sessions || [];
+            var dbType = data.db_type || 'unknown';
+            var activeCount = sessions.filter(function(s) { return s.state === 'active'; }).length;
+            // Update tab count badge
+            var tabBtns = document.querySelectorAll('#queryTabsCard .tab-btn');
+            tabBtns[3].innerHTML = 'Active Sessions <span class="tab-count">' + sessions.length + '</span>';
+
+            if (sessions.length === 0) {
+                body.innerHTML = '<p style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px;">No active database sessions at this moment.</p>';
+                return;
+            }
+            body.innerHTML = '<div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">'
+                + '<span class="ds-type-badge normal">' + escapeHtml(dbType.toUpperCase()) + '</span>'
+                + '<span style="font-size: 12px; color: var(--text-secondary);"><span style="color: var(--healthy); font-weight: 600;">' + activeCount + ' active</span> / ' + sessions.length + ' total</span>'
+                + '</div>'
+                + '<div style="overflow-x: auto;"><table class="data-table"><thead><tr>'
+                + '<th>PID</th><th>User</th><th>Database</th><th>State</th><th>Runtime</th><th style="min-width:300px;">SQL Query</th><th>Wait Event</th>'
+                + '</tr></thead><tbody>' + renderSessionRows(sessions) + '</tbody></table></div>';
+        } catch (err) {
+            body.innerHTML = '<p style="color: var(--critical);">Failed to load sessions: ' + escapeHtml(err.message) + '</p>';
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // DB Session History — individual query executions from performance_schema
+    // -----------------------------------------------------------------------
+    function renderSessionHistoryRows(events) {
+        return events.map(function(e, i) {
+            var execTime = parseFloat(e.exec_time_ms || 0);
+            var lockTime = parseFloat(e.lock_time_ms || 0);
+            var execClass = execTime > 1000 ? 'color: var(--critical); font-weight: 600;' :
+                             execTime > 100 ? 'color: var(--warning); font-weight: 600;' : '';
+            var alertClass = execTime >= 10000 ? ' class="row-alert"' : '';
+            var queryText = (e.sql_text || '').length > 200
+                ? e.sql_text.substring(0, 200) + '...'
+                : (e.sql_text || '-');
+            var hasErrors = parseInt(e.errors || 0) > 0;
+            var noIndex = parseInt(e.no_index || 0) > 0;
+            return '<tr' + alertClass + '>'
+                + '<td class="mono" style="color: var(--text-muted);">' + (i + 1) + '</td>'
+                + '<td class="mono" style="font-size: 11px; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + escapeHtml(e.sql_text || '') + '">' + escapeHtml(queryText) + '</td>'
+                + '<td class="mono">' + escapeHtml(e.db_name || '-') + '</td>'
+                + '<td class="mono" style="' + execClass + '">' + execTime.toFixed(2) + ' ms</td>'
+                + '<td class="mono">' + lockTime.toFixed(2) + ' ms</td>'
+                + '<td class="mono">' + formatNumber(e.rows_affected || 0) + '</td>'
+                + '<td class="mono">' + formatNumber(e.rows_examined || 0) + '</td>'
+                + '<td class="mono">' + formatNumber(e.rows_sent || 0) + '</td>'
+                + '<td class="mono"' + (hasErrors ? ' style="color: var(--critical); font-weight: 600;"' : '') + '>' + (e.errors || 0) + '</td>'
+                + '<td class="mono">' + (e.warnings || 0) + '</td>'
+                + '<td>' + (noIndex ? '<span class="badge badge-warning">No Index</span>' : '-') + '</td>'
+                + '</tr>';
+        });
+    }
+
+    async function loadSessionHistory() {
+        var body = document.getElementById('sessionHistoryBody');
+        if (!selectedDs && datasources.length > 0) selectedDs = 0;
+        if (selectedDs === null || !datasources[selectedDs]) {
+            body.innerHTML = '<p style="font-size: 13px; color: var(--warning);">Please select a datasource first.</p>';
+            return;
+        }
+        var ds = datasources[selectedDs];
+        body.innerHTML = '<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line medium"></div><div class="skeleton skeleton-line short"></div>';
+
+        try {
+            var data = await fetchData('/datasources/' + encodeURIComponent(ds.name) + '/session-history');
+            if (data.error) {
+                body.innerHTML = '<p style="color: var(--critical);">Error: ' + escapeHtml(data.error) + '</p>';
+                return;
+            }
+            if (data.status === 'limited' || data.status === 'unsupported') {
+                body.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-muted);">'
+                    + '<p style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">'
+                    + escapeHtml((data.db_type || 'UNKNOWN').toUpperCase()) + ' Database</p>'
+                    + '<p style="font-size: 12px;">' + escapeHtml(data.message || 'Not supported for this database type.') + '</p></div>';
+                return;
+            }
+            var events = data.events || [];
+            var dbType = data.db_type || 'unknown';
+
+            // Update tab count badge
+            var tabBtns = document.querySelectorAll('#queryTabsCard .tab-btn');
+            tabBtns[1].innerHTML = 'DB Session History <span class="tab-count">' + events.length + '</span>';
+
+            if (!data.has_source) {
+                body.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-muted);">'
+                    + '<div style="font-size: 32px; margin-bottom: 8px; opacity: 0.3;">&#9707;</div>'
+                    + '<p style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Session history not available</p>'
+                    + '<p style="font-size: 12px;">' + (dbType === 'postgresql'
+                        ? 'Enable pg_stat_statements extension.'
+                        : 'Enable events_statements_history_long consumer in performance_schema.') + '</p></div>';
+                return;
+            }
+
+            if (events.length === 0) {
+                body.innerHTML = '<div style="margin-bottom: 8px;">'
+                    + '<span style="font-size: 13px; font-weight: 600;">Datasource: ' + escapeHtml(ds.name) + '</span>'
+                    + '<span class="ds-type-badge normal" style="margin-left: 8px;">' + escapeHtml(dbType.toUpperCase()) + '</span>'
+                    + '</div>'
+                    + '<p style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px;">No session history recorded yet.</p>';
+                return;
+            }
+
+            body.innerHTML = '<div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">'
+                + '<div>'
+                + '<span style="font-size: 13px; font-weight: 600;">Datasource: ' + escapeHtml(ds.name) + '</span>'
+                + '<span class="ds-type-badge normal" style="margin-left: 8px;">' + escapeHtml(dbType.toUpperCase()) + '</span>'
+                + '</div>'
+                + '<span style="font-size: 12px; color: var(--text-secondary);">' + events.length + ' quer' + (events.length === 1 ? 'y' : 'ies') + ' — sorted by most recent</span>'
+                + '</div>'
+                + '<div class="table-scroll" style="overflow-x: auto;"><table class="data-table"><thead><tr>'
+                + '<th>#</th>'
+                + '<th style="min-width: 300px;">SQL Query</th>'
+                + '<th>Database</th>'
+                + '<th>Exec Time</th>'
+                + '<th>Lock Time</th>'
+                + '<th>Rows Affected</th>'
+                + '<th>Rows Examined</th>'
+                + '<th>Rows Sent</th>'
+                + '<th>Errors</th>'
+                + '<th>Warnings</th>'
+                + '<th>Index Used</th>'
+                + '</tr></thead><tbody id="sessionHistoryTbody"></tbody></table></div>';
+            paginateTable('sessionHistoryTbody', renderSessionHistoryRows(events));
+        } catch (err) {
+            body.innerHTML = '<p style="color: var(--critical);">Failed to load session history: ' + escapeHtml(err.message) + '</p>';
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Query row renderer (avoids nested template literals)
+    // -----------------------------------------------------------------------
+    function formatTimestamp(ts) {
+        if (!ts) return '-';
+        try {
+            var d = new Date(ts);
+            if (isNaN(d.getTime())) return escapeHtml(ts);
+            var pad = function(n) { return n < 10 ? '0' + n : n; };
+            return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())
+                 + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        } catch(e) { return escapeHtml(ts); }
+    }
+
+    function renderQueryRows(queries, dbType) {
+        return queries.map(function(q, i) {
+            var maxTime = parseFloat(q.max_time_sec || 0);
+            var avgTime = parseFloat(q.avg_time_sec || 0);
+            var maxClass = maxTime > 5 ? 'color: var(--critical); font-weight: 600;' :
+                            maxTime > 1 ? 'color: var(--warning); font-weight: 600;' : '';
+            var avgClass = avgTime > 1 ? 'color: var(--warning); font-weight: 600;' : '';
+            var alertClass = maxTime >= 10 ? ' class="row-alert"' : '';
+            var queryText = (q.query || '').length > 200
+                ? q.query.substring(0, 200) + '...'
+                : (q.query || '-');
+            var fullQuery = q.sample_query || q.query || '';
+            var rows = q.rows != null ? q.rows : (q.rows_examined != null ? q.rows_examined : 0);
+            var cacheCol = dbType === 'postgresql'
+                ? '<td class="mono">' + (q.cache_hit_pct != null ? q.cache_hit_pct + '%' : '-') + '</td>'
+                : '';
+            return '<tr' + alertClass + '>'
+                + '<td class="mono" style="color: var(--text-muted);">' + (i + 1) + '</td>'
+                + '<td class="mono" style="font-size: 11px; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + escapeHtml(fullQuery) + '">' + escapeHtml(queryText) + '</td>'
+                + '<td class="mono">' + formatNumber(q.calls || 0) + '</td>'
+                + '<td class="mono" style="' + maxClass + '">' + maxTime.toFixed(4) + 's</td>'
+                + '<td class="mono" style="' + avgClass + '">' + avgTime.toFixed(4) + 's</td>'
+                + '<td class="mono">' + parseFloat(q.min_time_sec || 0).toFixed(4) + 's</td>'
+                + '<td class="mono">' + parseFloat(q.total_time_sec || 0).toFixed(2) + 's</td>'
+                + '<td class="mono">' + formatNumber(rows) + '</td>'
+                + '<td style="font-size: 11px; white-space: nowrap;">' + formatTimestamp(q.first_executed) + '</td>'
+                + '<td style="font-size: 11px; white-space: nowrap;">' + formatTimestamp(q.last_executed) + '</td>'
+                + cacheCol
+                + '</tr>';
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Query Execution History — all queries sorted by max time DESC
+    // -----------------------------------------------------------------------
+    async function loadQueryHistory() {
+        const body = document.getElementById('queryHistoryBody');
+        const sourceEl = document.getElementById('queryHistorySource');
+        if (!selectedDs && datasources.length > 0) {
+            selectedDs = 0;
+        }
+        if (selectedDs === null || !datasources[selectedDs]) {
+            body.innerHTML = '<p style="font-size: 13px; color: var(--warning);">Please select a datasource first.</p>';
+            return;
+        }
+
+        const ds = datasources[selectedDs];
+        body.innerHTML = '<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line medium"></div><div class="skeleton skeleton-line short"></div>';
+        sourceEl.textContent = '';
+
+        try {
+            const data = await fetchData('/datasources/' + encodeURIComponent(ds.name) + '/query-history');
+
+            if (data.error) {
+                body.innerHTML = '<p style="color: var(--critical);">Error: ' + escapeHtml(data.error) + '</p>';
+                return;
+            }
+
+            if (data.status === 'limited' || data.status === 'unsupported') {
+                body.innerHTML = `
+                    <div style="text-align: center; padding: 24px; color: var(--text-muted);">
+                        <div style="font-size: 32px; margin-bottom: 8px; opacity: 0.3;">&#9707;</div>
+                        <p style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">
+                            ${escapeHtml(data.db_type.toUpperCase())} Database
+                        </p>
+                        <p style="font-size: 12px;">${escapeHtml(data.message)}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const queries = data.queries || [];
+            const dbType = data.db_type || 'unknown';
+            sourceEl.textContent = data.source ? 'Source: ' + data.source : '';
+
+            if (!data.has_source) {
+                body.innerHTML = `
+                    <div style="text-align: center; padding: 24px; color: var(--text-muted);">
+                        <div style="font-size: 32px; margin-bottom: 8px; opacity: 0.3;">&#9707;</div>
+                        <p style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">
+                            Query history not available
+                        </p>
+                        <p style="font-size: 12px;">${dbType === 'postgresql'
+                            ? 'Enable pg_stat_statements extension: CREATE EXTENSION pg_stat_statements;'
+                            : 'Enable performance_schema in MySQL configuration.'
+                        }</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (queries.length === 0) {
+                body.innerHTML = `
+                    <div style="margin-bottom: 8px;">
+                        <span style="font-size: 13px; font-weight: 600;">Datasource: ${escapeHtml(ds.name)}</span>
+                        <span class="ds-type-badge normal" style="margin-left: 8px;">${escapeHtml(dbType.toUpperCase())}</span>
+                    </div>
+                    <p style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px;">No query history recorded yet.</p>
+                `;
+                return;
+            }
+
+            body.innerHTML = `
+                <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-size: 13px; font-weight: 600;">Datasource: ${escapeHtml(ds.name)}</span>
+                        <span class="ds-type-badge normal" style="margin-left: 8px;">${escapeHtml(dbType.toUpperCase())}</span>
+                    </div>
+                    <span style="font-size: 12px; color: var(--text-secondary);">${queries.length} quer${queries.length === 1 ? 'y' : 'ies'} recorded — sorted by max execution time</span>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th style="min-width: 300px;">SQL Query</th>
+                                <th>Calls</th>
+                                <th>Max Time</th>
+                                <th>Avg Time</th>
+                                <th>Min Time</th>
+                                <th>Total Time</th>
+                                <th>Rows</th>
+                                <th>First Executed</th>
+                                <th>Last Executed</th>
+                                ${dbType === 'postgresql' ? '<th>Cache Hit %</th>' : ''}
+                            </tr>
+                        </thead>
+                        <tbody id="queryHistoryTbody">
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            paginateTable('queryHistoryTbody', renderQueryRows(queries, dbType));
+        } catch (err) {
+            body.innerHTML = '<p style="color: var(--critical);">Failed to load query history: ' + escapeHtml(err.message) + '</p>';
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Thread Stack Trace Modal & DB Connection Threads
+    // -----------------------------------------------------------------------
+    function highlightFrame(frame) {
+        if (/\.(com\.|org\.|net\.)/.test(frame) && !/java\.|javax\.|sun\.|jdk\./.test(frame) && !/jboss|wildfly|undertow|xnio|arjuna/.test(frame)) {
+            return '<span class="stack-frame-app">' + escapeHtml(frame) + '</span>';
+        }
+        if (/jboss|wildfly|undertow|xnio|arjuna/.test(frame)) {
+            return '<span class="stack-frame-jboss">' + escapeHtml(frame) + '</span>';
+        }
+        return escapeHtml(frame);
+    }
+
+    function showThreadStack(threadName, serverName) {
+        var modal = document.getElementById('threadModal');
+        var body = document.getElementById('threadModalBody');
+        document.getElementById('threadModalTitle').textContent = (serverName ? '[' + serverName + '] ' : '') + threadName;
+        body.innerHTML = '<p style="color: var(--text-muted);">Loading thread details...</p>';
+        modal.classList.add('active');
+
+        fetchData('/thread-details').then(function(data) {
+            var threads = data.threads || [];
+            var thread = null;
+            var baseServer = serverName ? serverName.replace(/\s*\(.*\)$/, '') : '';
+            for (var i = 0; i < threads.length; i++) {
+                var t = threads[i];
+                if (t.thread_name === threadName) {
+                    if (!serverName || t.server_name === serverName || t.server_name === baseServer) {
+                        thread = t;
+                        break;
+                    }
+                    if (!thread) thread = t;
+                }
+            }
+            if (!thread) {
+                body.innerHTML = '<p style="color: var(--text-muted);">Thread "' + escapeHtml(threadName) + '" not found in current thread dump. It may have completed.</p>';
+                return;
+            }
+
+            var html = '<div class="thread-meta">';
+            if (thread.server_name) html += '<div class="thread-meta-item">Server:<strong><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(thread.server_name) + '</span></strong></div>';
+            html += '<div class="thread-meta-item">State:<strong>' + escapeHtml(thread.state || '-') + '</strong></div>';
+            if (thread.thread_id) html += '<div class="thread-meta-item">ID:<strong>' + thread.thread_id + '</strong></div>';
+            if (thread.category) html += '<div class="thread-meta-item">Category:<strong>' + escapeHtml(thread.category) + '</strong></div>';
+            if (thread.task) html += '<div class="thread-meta-item">Task:<strong>' + escapeHtml(thread.task) + '</strong></div>';
+            if (thread.blocked_count) html += '<div class="thread-meta-item">Blocked:<strong>' + thread.blocked_count + '</strong></div>';
+            if (thread.waited_count) html += '<div class="thread-meta-item">Waited:<strong>' + thread.waited_count + '</strong></div>';
+            html += '</div>';
+
+            if (thread.lock_info) {
+                html += '<div style="font-size: 11px; color: var(--warning); margin-bottom: 8px;">Lock: ' + escapeHtml(thread.lock_info) + '</div>';
+            }
+            if (thread.lock_owner_name) {
+                html += '<div style="font-size: 11px; color: var(--critical); margin-bottom: 8px;">Lock Owner: ' + escapeHtml(thread.lock_owner_name) + ' (id: ' + (thread.lock_owner_id || '-') + ')</div>';
+            }
+
+            if (thread.stack_trace && thread.stack_trace.length > 0) {
+                var lines = Array.isArray(thread.stack_trace) ? thread.stack_trace : thread.stack_trace.split('\n');
+                html += '<div class="stack-trace-box">' + lines.map(highlightFrame).join('\n') + '</div>';
+            } else {
+                html += '<p style="color: var(--text-muted); font-size: 12px;">No stack trace available.</p>';
+            }
+
+            body.innerHTML = html;
+        }).catch(function(err) {
+            body.innerHTML = '<p style="color: var(--critical);">Failed to load thread details: ' + escapeHtml(err.message) + '</p>';
+        });
+    }
+
+    function closeThreadModal() {
+        document.getElementById('threadModal').classList.remove('active');
+    }
+
+    var DB_FRAME_PATTERNS = [
+        /java\.sql\./i, /javax\.sql\./i, /jakarta\.persistence/i,
+        /jdbc/i, /datasource/i, /connection.*pool/i,
+        /hibernate/i, /jpa/i, /agroal/i, /ironjacamar/i,
+        /org\.postgresql/i, /com\.mysql/i, /oracle\.jdbc/i,
+        /microsoft\.sqlserver/i, /h2database/i
+    ];
+
+    function isDbThread(thread) {
+        if (thread.task && /jdbc|datasource|sql/i.test(thread.task)) return true;
+        var stack = thread.stack_trace;
+        if (!stack) return false;
+        var frames = Array.isArray(stack) ? stack : [stack];
+        for (var i = 0; i < frames.length; i++) {
+            for (var j = 0; j < DB_FRAME_PATTERNS.length; j++) {
+                if (DB_FRAME_PATTERNS[j].test(frames[i])) return true;
+            }
+        }
+        return false;
+    }
+
+    async function loadDbThreads() {
+        var body = document.getElementById('dbThreadsBody');
+        body.innerHTML = '<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line medium"></div>';
+
+        try {
+            var data = await fetchData('/thread-details');
+            var threads = (data.threads || []).filter(isDbThread);
+
+            var tabBtns = document.querySelectorAll('#queryTabsCard .tab-btn');
+            tabBtns[4].innerHTML = 'DB Connection Threads <span class="tab-count">' + threads.length + '</span>';
+
+            if (threads.length === 0) {
+                body.innerHTML = '<p style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px;">No JBoss threads currently executing database operations.</p>';
+                return;
+            }
+
+            var showServer = threads.some(function(t) { return t.server_name; });
+            var hdr = '<tr><th>Thread Name</th><th>State</th>';
+            if (showServer) hdr += '<th>Server</th>';
+            hdr += '<th>Category</th><th>Task</th><th>Blocked</th><th>Waited</th><th>Lock Info</th></tr>';
+
+            var rows = threads.map(function(t) {
+                var safeName = escapeHtml(t.thread_name).replace(/'/g, "\\'");
+                var safeServer = t.server_name ? escapeHtml(t.server_name).replace(/'/g, "\\'") : '';
+                var stateClass = t.state === 'BLOCKED' ? 'color: var(--critical); font-weight: 600;'
+                    : t.state === 'RUNNABLE' ? 'color: var(--healthy);'
+                    : t.state === 'WAITING' || t.state === 'TIMED_WAITING' ? 'color: var(--warning);' : '';
+                var lockCell = t.lock_info
+                    ? '<span style="font-size:10px;color:var(--warning);">' + escapeHtml(t.lock_info) + '</span>'
+                    : '<span style="color:var(--text-muted);">-</span>';
+                var serverCell = showServer
+                    ? '<td><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(t.server_name || '-') + '</span></td>'
+                    : '';
+                return '<tr>'
+                    + '<td class="mono" style="font-size:11px;"><span class="thread-link" onclick="showThreadStack(\'' + safeName + '\', \'' + safeServer + '\')">' + escapeHtml(t.thread_name) + '</span></td>'
+                    + '<td class="mono" style="font-size:11px;' + stateClass + '">' + escapeHtml(t.state || '-') + '</td>'
+                    + serverCell
+                    + '<td style="font-size:11px;">' + escapeHtml(t.category || '-') + '</td>'
+                    + '<td class="mono" style="font-size:11px;">' + escapeHtml(t.task || '-') + '</td>'
+                    + '<td class="mono">' + (t.blocked_count || 0) + '</td>'
+                    + '<td class="mono">' + (t.waited_count || 0) + '</td>'
+                    + '<td>' + lockCell + '</td>'
+                    + '</tr>';
+            }).join('');
+
+            var blockedCount = threads.filter(function(t) { return t.state === 'BLOCKED'; }).length;
+            var waitingCount = threads.filter(function(t) { return t.state === 'WAITING' || t.state === 'TIMED_WAITING'; }).length;
+
+            body.innerHTML = '<div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">'
+                + '<span style="font-size: 12px; color: var(--text-secondary);">' + threads.length + ' thread' + (threads.length !== 1 ? 's' : '') + ' in DB operations</span>'
+                + '<span style="font-size: 12px;">'
+                + (blockedCount > 0 ? '<span style="color: var(--critical); font-weight: 600; margin-right: 8px;">' + blockedCount + ' BLOCKED</span>' : '')
+                + (waitingCount > 0 ? '<span style="color: var(--warning); margin-right: 8px;">' + waitingCount + ' WAITING</span>' : '')
+                + '</span>'
+                + '</div>'
+                + '<div style="overflow-x: auto;"><table class="data-table"><thead>' + hdr + '</thead><tbody>' + rows + '</tbody></table></div>';
+        } catch (err) {
+            body.innerHTML = '<p style="color: var(--critical);">Failed to load DB threads: ' + escapeHtml(err.message) + '</p>';
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // AI Analysis
+    // -----------------------------------------------------------------------
+    async function loadAiAnalysis() {
+        const el = document.getElementById('aiContent');
+        el.className = 'ai-content loading';
+        el.textContent = 'Analyzing datasource health...';
+        try {
+            const analysis = await fetchAPI('/jboss/datasources');
+            el.className = 'ai-content';
+            el.textContent = analysis;
+        } catch (err) {
+            el.className = 'ai-content';
+            el.textContent = 'Unable to load AI analysis. The analysis endpoint may be unavailable.\n\nError: ' + err.message;
+        }
+    }
+    </script>
+</body>
+</html>

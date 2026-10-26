@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JBoss Monitor - AI Analyst</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <style>
+        /* ── AI Gradient Keyframes ── */
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        @keyframes borderRotate {
+            0% { --angle: 0deg; }
+            100% { --angle: 360deg; }
+        }
+
+        @keyframes shimmerSweep {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes sparkle {
+            0%, 100% { transform: scale(1) rotate(0deg); }
+            50% { transform: scale(1.15) rotate(8deg); }
+        }
+
+        /* ── Hero Banner ── */
+        .ai-hero {
+            background: linear-gradient(135deg, #05080f 0%, #0a1020 30%, #0a0a25 60%, #05080f 100%);
+            background-size: 300% 300%;
+            animation: gradientShift 12s ease infinite;
+            border-radius: var(--radius);
+            padding: 36px 32px;
+            margin-bottom: 28px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(0, 212, 255, 0.15);
+        }
+
+        .ai-hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 30% 50%, rgba(0, 212, 255, 0.06) 0%, transparent 50%),
+                        radial-gradient(circle at 70% 50%, rgba(170, 68, 255, 0.06) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .ai-hero-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .ai-hero-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(170, 68, 255, 0.2));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            flex-shrink: 0;
+            border: 1px solid rgba(0, 212, 255, 0.25);
+            backdrop-filter: blur(8px);
+        }
+
+        .ai-hero-text h2 {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            background: linear-gradient(135deg, #e6edf3, #00d4ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .ai-hero-text p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        /* ── Quick Analysis Grid ── */
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        @media (max-width: 1200px) {
+            .analysis-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 768px) {
+            .analysis-grid { grid-template-columns: 1fr; }
+        }
+
+        .analysis-card {
+            background: rgba(8, 18, 35, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 212, 255, 0.1);
+            border-left: 3px solid transparent;
+            border-radius: var(--radius);
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            user-select: none;
+            position: relative;
+            overflow: hidden;
+            animation: fadeInUp 0.4s ease backwards;
+        }
+
+        .analysis-card:nth-child(1) { animation-delay: 0.05s; }
+        .analysis-card:nth-child(2) { animation-delay: 0.1s; }
+        .analysis-card:nth-child(3) { animation-delay: 0.15s; }
+        .analysis-card:nth-child(4) { animation-delay: 0.2s; }
+        .analysis-card:nth-child(5) { animation-delay: 0.25s; }
+        .analysis-card:nth-child(6) { animation-delay: 0.3s; }
+        .analysis-card:nth-child(7) { animation-delay: 0.35s; }
+
+        .analysis-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.03), transparent 60%);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        .analysis-card:hover {
+            transform: translateY(-3px) scale(1.01);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2), 0 0 20px rgba(0, 212, 255, 0.08);
+            border-color: rgba(0, 212, 255, 0.25);
+        }
+
+        .analysis-card:hover::after { opacity: 1; }
+
+        .analysis-card:active {
+            transform: translateY(-1px) scale(1.005);
+        }
+
+        .analysis-card.running {
+            border-color: var(--accent);
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        /* Card category colors via border-left */
+        .analysis-card[data-name="health"]     { border-left-color: var(--healthy); }
+        .analysis-card[data-name="memory"]     { border-left-color: var(--accent); }
+        .analysis-card[data-name="threads"]    { border-left-color: var(--warning); }
+        .analysis-card[data-name="datasource"] { border-left-color: var(--info); }
+        .analysis-card[data-name="deploy"]     { border-left-color: var(--moderate); }
+        .analysis-card[data-name="txn"]        { border-left-color: var(--critical); }
+        .analysis-card[data-name="diagnose"]   { border-left-color: #aa44ff; }
+
+        .analysis-card .ac-icon {
+            font-size: 22px;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 1;
+        }
+
+        .analysis-card .ac-icon.health     { background: rgba(0, 255, 136, 0.12); color: var(--healthy); }
+        .analysis-card .ac-icon.memory     { background: rgba(0, 212, 255, 0.12); color: var(--accent); }
+        .analysis-card .ac-icon.threads    { background: rgba(255, 170, 0, 0.12); color: var(--warning); }
+        .analysis-card .ac-icon.datasource { background: rgba(0, 212, 255, 0.12); color: var(--info); }
+        .analysis-card .ac-icon.deploy     { background: rgba(255, 136, 0, 0.12); color: var(--moderate); }
+        .analysis-card .ac-icon.txn        { background: rgba(255, 34, 68, 0.12); color: var(--critical); }
+        .analysis-card .ac-icon.diagnose   { background: rgba(170, 68, 255, 0.12); color: #aa44ff; }
+
+        .analysis-card .ac-info {
+            position: relative;
+            z-index: 1;
+        }
+
+        .analysis-card .ac-info h4 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .analysis-card .ac-info p {
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        /* ── Ask Section (Chat-style) ── */
+        .ask-section {
+            margin-bottom: 28px;
+        }
+
+        .ask-wrapper {
+            background: rgba(8, 18, 35, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            border-radius: 14px;
+            padding: 6px;
+            display: flex;
+            align-items: center;
+            gap: 0;
+            transition: all 0.3s;
+        }
+
+        .ask-wrapper:focus-within {
+            border-color: rgba(0, 212, 255, 0.4);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.08), 0 0 20px rgba(0, 212, 255, 0.06);
+        }
+
+        .ask-wrapper .ask-input {
+            flex: 1;
+            padding: 14px 18px;
+            font-size: 15px;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            outline: none;
+        }
+
+        .ask-wrapper .ask-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .ask-send-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            border: none;
+            background: linear-gradient(135deg, #00d4ff, #aa44ff);
+            color: #fff;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.25s;
+            flex-shrink: 0;
+        }
+
+        .ask-send-btn:hover {
+            transform: scale(1.08);
+            box-shadow: 0 0 16px rgba(0, 212, 255, 0.35);
+        }
+
+        .ask-send-btn:active {
+            transform: scale(0.96);
+        }
+
+        .ask-send-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .ask-send-btn .sparkle-icon {
+            display: inline-block;
+            animation: sparkle 2.5s ease-in-out infinite;
+        }
+
+        /* ── Result Panel with Animated Border ── */
+        .result-panel {
+            margin-bottom: 28px;
+            position: relative;
+        }
+
+        .result-panel-inner {
+            position: relative;
+            border-radius: 12px;
+            padding: 2px;
+            background: linear-gradient(var(--angle, 0deg), #00d4ff, #aa44ff, #00d4ff, #aa44ff);
+            background-size: 300% 300%;
+            animation: gradientShift 6s ease infinite;
+        }
+
+        .result-panel-content {
+            background: linear-gradient(135deg, #060e1a, #080f1c);
+            border-radius: 10px;
+            padding: 24px;
+            min-height: 180px;
+        }
+
+        .result-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .result-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .result-label .ai-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.15), rgba(170, 68, 255, 0.15));
+            color: #aa44ff;
+            border: 1px solid rgba(170, 68, 255, 0.2);
+        }
+
+        .result-label .result-query {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .result-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-sm {
+            padding: 6px 14px;
+            font-size: 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            background: rgba(0, 212, 255, 0.06);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-sm:hover {
+            background: rgba(0, 212, 255, 0.12);
+            border-color: rgba(0, 212, 255, 0.35);
+            color: var(--text-primary);
+        }
+
+        .result-body {
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+        }
+
+        .result-body.placeholder {
+            color: var(--text-muted);
+            font-style: italic;
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        /* ── Markdown rendered content ── */
+        .ai-rendered strong {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .ai-rendered .ai-heading {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 16px 0 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+        }
+
+        .ai-rendered .ai-heading:first-child {
+            margin-top: 0;
+        }
+
+        .ai-rendered .ai-list {
+            list-style: none;
+            padding: 0;
+            margin: 8px 0;
+        }
+
+        .ai-rendered .ai-list li {
+            padding: 4px 0 4px 20px;
+            position: relative;
+            line-height: 1.6;
+        }
+
+        .ai-rendered .ai-list li::before {
+            content: '';
+            position: absolute;
+            left: 4px;
+            top: 13px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #00d4ff, #aa44ff);
+        }
+
+        /* ── Loading shimmer ── */
+        .ai-loading {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 10px 0;
+        }
+
+        .ai-loading .shimmer-line {
+            height: 14px;
+            border-radius: 6px;
+            background: linear-gradient(90deg,
+                rgba(0, 212, 255, 0.04) 0%,
+                rgba(0, 212, 255, 0.12) 30%,
+                rgba(170, 68, 255, 0.12) 50%,
+                rgba(0, 212, 255, 0.04) 100%);
+            background-size: 200% 100%;
+            animation: shimmerSweep 2s ease-in-out infinite;
+        }
+
+        .ai-loading .shimmer-line:nth-child(1) { width: 85%; }
+        .ai-loading .shimmer-line:nth-child(2) { width: 70%; animation-delay: 0.15s; }
+        .ai-loading .shimmer-line:nth-child(3) { width: 90%; animation-delay: 0.3s; }
+        .ai-loading .shimmer-line:nth-child(4) { width: 55%; animation-delay: 0.45s; }
+
+        .ai-loading-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            animation: pulseGlow 1.8s ease-in-out infinite;
+        }
+
+        .ai-loading-label .dot-pulse {
+            display: inline-flex;
+            gap: 4px;
+        }
+
+        .ai-loading-label .dot-pulse span {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulseGlow 1.2s ease-in-out infinite;
+        }
+
+        .ai-loading-label .dot-pulse span:nth-child(2) { animation-delay: 0.2s; }
+        .ai-loading-label .dot-pulse span:nth-child(3) { animation-delay: 0.4s; }
+
+        /* ── History Section ── */
+        .history-section {
+            margin-top: 28px;
+            background: rgba(8, 18, 35, 0.4);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(0, 212, 255, 0.08);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        .history-section .card-header {
+            background: rgba(0, 0, 0, 0.15);
+            border-bottom: 1px solid rgba(0, 212, 255, 0.08);
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .history-item {
+            border-bottom: 1px solid rgba(0, 212, 255, 0.06);
+            transition: background 0.2s;
+        }
+
+        .history-item:last-child {
+            border-bottom: none;
+        }
+
+        .history-item:nth-child(odd) {
+            background: rgba(0, 212, 255, 0.015);
+        }
+
+        .history-item-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 20px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s;
+        }
+
+        .history-item-header:hover {
+            background: rgba(0, 212, 255, 0.04);
+        }
+
+        .history-item-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .history-item-left .h-icon {
+            font-size: 14px;
+            flex-shrink: 0;
+            background: linear-gradient(135deg, #00d4ff, #aa44ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .history-item-left .h-query {
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .history-item-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+
+        .history-item-right .h-time {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        .history-item-right .h-toggle {
+            font-size: 10px;
+            color: var(--text-muted);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-block;
+        }
+
+        .history-item-right .h-toggle.expanded {
+            transform: rotate(180deg);
+        }
+
+        .history-item-body {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s;
+            padding: 0 20px;
+        }
+
+        .history-item-body.expanded {
+            max-height: 2000px;
+            padding: 0 20px 20px;
+        }
+
+        .history-item-body .hist-content {
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            padding-top: 12px;
+            border-top: 1px solid rgba(0, 212, 255, 0.08);
+        }
+
+        .empty-history {
+            text-align: center;
+            padding: 32px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        /* ── Section Labels ── */
+        .section-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+
+        .section-label::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(90deg, rgba(0, 212, 255, 0.15), transparent);
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+    <div class="main-content">
+        <div id="header-container"></div>
+        <div class="content">
+
+            <!-- AI Hero Banner -->
+            <div class="ai-hero">
+                <div class="ai-hero-content">
+                    <div class="ai-hero-icon">&#10024;</div>
+                    <div class="ai-hero-text">
+                        <h2>AI-Powered Analysis</h2>
+                        <p>Run diagnostics, ask questions, and get intelligent insights about your JBoss server powered by AI.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Analysis Cards -->
+            <div class="section-label">Quick Analysis</div>
+            <div class="analysis-grid">
+                <div class="analysis-card" onclick="runQuickAnalysis('health', '/jboss/health', this)" data-name="health">
+                    <div class="ac-icon health">&#9829;</div>
+                    <div class="ac-info">
+                        <h4>Full Health Check</h4>
+                        <p>Comprehensive server health assessment across all subsystems</p>
+                    </div>
+                </div>
+                <div class="analysis-card" onclick="runQuickAnalysis('memory', '/jboss/memory', this)" data-name="memory">
+                    <div class="ac-icon memory">&#9618;</div>
+                    <div class="ac-info">
+                        <h4>Memory Analysis</h4>
+                        <p>Heap usage, garbage collection, and memory pool diagnostics</p>
+                    </div>
+                </div>
+                <div class="analysis-card" onclick="runQuickAnalysis('threads', '/jboss/threads', this)" data-name="threads">
+                    <div class="ac-icon threads">&#9776;</div>
+                    <div class="ac-info">
+                        <h4>Thread Analysis</h4>
+                        <p>Thread states, deadlock detection, and pool utilization</p>
+                    </div>
+                </div>
+                <div class="analysis-card" onclick="runQuickAnalysis('datasources', '/jboss/datasources', this)" data-name="datasource">
+                    <div class="ac-icon datasource">&#9707;</div>
+                    <div class="ac-info">
+                        <h4>Datasource Analysis</h4>
+                        <p>Connection pool status, active connections, and JDBC health</p>
+                    </div>
+                </div>
+                <div class="analysis-card" onclick="runQuickAnalysis('deployments', '/jboss/deployments', this)" data-name="deploy">
+                    <div class="ac-icon deploy">&#9744;</div>
+                    <div class="ac-info">
+                        <h4>Deployment Check</h4>
+                        <p>Application deployment status, runtime status, and issues</p>
+                    </div>
+                </div>
+                <div class="analysis-card" onclick="runQuickAnalysis('transactions', '/jboss/transactions', this)" data-name="txn">
+                    <div class="ac-icon txn">&#8644;</div>
+                    <div class="ac-info">
+                        <h4>Transaction Analysis</h4>
+                        <p>JTA transaction rates, abort ratios, and timeout analysis</p>
+                    </div>
+                </div>
+                <div class="analysis-card" onclick="runQuickAnalysis('diagnose', '/jboss/diagnose', this)" data-name="diagnose">
+                    <div class="ac-icon diagnose">&#9889;</div>
+                    <div class="ac-info">
+                        <h4>Diagnose Slowness</h4>
+                        <p>AI-powered root cause analysis for performance issues</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ask Anything (Chat-style) -->
+            <div class="section-label">Ask Anything</div>
+            <div class="ask-section">
+                <div class="ask-wrapper">
+                    <input type="text" class="ask-input" id="askInput"
+                           placeholder="Ask about your JBoss server... e.g., 'Why is the server slow?'"
+                           autocomplete="off">
+                    <button class="ask-send-btn" id="askBtn" onclick="askQuestion()" title="Ask AI">
+                        <span class="sparkle-icon">&#10024;</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Analysis Result Panel -->
+            <div class="result-panel">
+                <div class="result-panel-inner">
+                    <div class="result-panel-content">
+                        <div class="result-header" id="resultHeader">
+                            <div class="result-label">
+                                <span class="ai-badge">&#10024; AI</span>
+                                <span>Analysis Result</span>
+                                <span class="result-query" id="resultQuery"></span>
+                            </div>
+                            <div class="result-actions" id="resultActions" style="display: none;">
+                                <button class="btn-sm" onclick="copyResult()">Copy</button>
+                            </div>
+                        </div>
+                        <div class="result-body placeholder" id="resultContent">Select an analysis or ask a question to get started.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analysis History -->
+            <div class="history-section" id="historySection" style="display: none;">
+                <div class="card-header">
+                    <h3>Analysis History</h3>
+                    <button class="btn-sm" onclick="clearHistory()">Clear</button>
+                </div>
+                <div class="history-list" id="historyList"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+        document.getElementById('sidebar-container').innerHTML = renderSidebar();
+        document.getElementById('header-container').innerHTML = renderPageHeader(
+            'AI Analyst',
+            'AI-powered JBoss server analysis and diagnostics'
+        );
+        setActiveNav();
+
+        const analysisHistory = [];
+        let isRunning = false;
+        let currentResult = '';
+
+        // --- Markdown-lite renderer ---
+        function renderAiText(text) {
+            if (!text) return '';
+            let lines = text.split('\n');
+            let html = '';
+            let inList = false;
+
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+
+                // Headers
+                if (line.startsWith('### ')) {
+                    if (inList) { html += '</ul>'; inList = false; }
+                    html += '<div class="ai-heading">' + escapeHtml(line.substring(4)) + '</div>';
+                    continue;
+                }
+
+                // List items
+                if (line.match(/^\s*[-*]\s+/)) {
+                    if (!inList) { html += '<ul class="ai-list">'; inList = true; }
+                    let content = line.replace(/^\s*[-*]\s+/, '');
+                    content = applyInline(content);
+                    html += '<li>' + content + '</li>';
+                    continue;
+                }
+
+                if (inList) { html += '</ul>'; inList = false; }
+
+                // Empty line
+                if (line.trim() === '') {
+                    html += '<br>';
+                    continue;
+                }
+
+                // Normal line
+                html += '<div>' + applyInline(line) + '</div>';
+            }
+
+            if (inList) html += '</ul>';
+            return '<div class="ai-rendered">' + html + '</div>';
+        }
+
+        function applyInline(text) {
+            let safe = escapeHtml(text);
+            safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            return safe;
+        }
+
+        // --- Quick Analysis ---
+        async function runQuickAnalysis(name, endpoint, cardEl) {
+            if (isRunning) return;
+            isRunning = true;
+
+            const label = cardEl.querySelector('h4').textContent;
+            cardEl.classList.add('running');
+            setResultLoading(label);
+
+            try {
+                const text = await fetchAPI(endpoint);
+                displayResult(label, text);
+                addToHistory(label, text);
+            } catch (err) {
+                displayError(label, err.message);
+                showToast('Analysis failed: ' + err.message, 'error');
+            } finally {
+                cardEl.classList.remove('running');
+                isRunning = false;
+            }
+        }
+
+        // --- Ask Question ---
+        async function askQuestion() {
+            const input = document.getElementById('askInput');
+            const question = input.value.trim();
+            if (!question || isRunning) return;
+
+            isRunning = true;
+            const btn = document.getElementById('askBtn');
+            btn.disabled = true;
+            input.disabled = true;
+
+            const label = question;
+            setResultLoading(label);
+
+            try {
+                const encoded = encodeURIComponent(question);
+                const text = await fetchAPI('/jboss/ask?q=' + encoded);
+                displayResult(label, text);
+                addToHistory(label, text);
+                input.value = '';
+            } catch (err) {
+                displayError(label, err.message);
+                showToast('Question failed: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                input.disabled = false;
+                isRunning = false;
+                input.focus();
+            }
+        }
+
+        // --- Result Display ---
+        function setResultLoading(label) {
+            const content = document.getElementById('resultContent');
+            const query = document.getElementById('resultQuery');
+            const actions = document.getElementById('resultActions');
+
+            content.className = 'result-body';
+            content.innerHTML =
+                '<div class="ai-loading">' +
+                    '<div class="ai-loading-label">Analyzing <span class="dot-pulse"><span></span><span></span><span></span></span></div>' +
+                    '<div class="shimmer-line"></div>' +
+                    '<div class="shimmer-line"></div>' +
+                    '<div class="shimmer-line"></div>' +
+                    '<div class="shimmer-line"></div>' +
+                '</div>';
+            query.textContent = '— ' + label;
+            actions.style.display = 'none';
+        }
+
+        function displayResult(label, text) {
+            const content = document.getElementById('resultContent');
+            const query = document.getElementById('resultQuery');
+            const actions = document.getElementById('resultActions');
+
+            content.className = 'result-body';
+            content.innerHTML = renderAiText(text);
+            query.textContent = '— ' + label;
+            actions.style.display = 'flex';
+            currentResult = text;
+        }
+
+        function displayError(label, message) {
+            const content = document.getElementById('resultContent');
+            const query = document.getElementById('resultQuery');
+            const actions = document.getElementById('resultActions');
+
+            content.className = 'result-body';
+            content.innerHTML = '<span style="color: var(--critical);">Error: ' + escapeHtml(message) + '</span>';
+            query.textContent = '— ' + label;
+            actions.style.display = 'none';
+            currentResult = '';
+        }
+
+        function copyResult() {
+            if (!currentResult) return;
+            navigator.clipboard.writeText(currentResult).then(() => {
+                showToast('Copied to clipboard', 'success');
+            }).catch(() => {
+                showToast('Failed to copy', 'error');
+            });
+        }
+
+        // --- History ---
+        function addToHistory(query, result) {
+            const entry = {
+                query: query,
+                result: result,
+                timestamp: new Date()
+            };
+            analysisHistory.unshift(entry);
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const section = document.getElementById('historySection');
+            const list = document.getElementById('historyList');
+
+            if (analysisHistory.length === 0) {
+                section.style.display = 'none';
+                return;
+            }
+
+            section.style.display = 'block';
+
+            list.innerHTML = analysisHistory.map((entry, index) => {
+                const time = entry.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                return `
+                    <div class="history-item">
+                        <div class="history-item-header" onclick="toggleHistoryItem(${index})">
+                            <div class="history-item-left">
+                                <span class="h-icon">&#10024;</span>
+                                <span class="h-query">${escapeHtml(entry.query)}</span>
+                            </div>
+                            <div class="history-item-right">
+                                <span class="h-time">${time}</span>
+                                <span class="h-toggle" id="histToggle${index}">&#9660;</span>
+                            </div>
+                        </div>
+                        <div class="history-item-body" id="histBody${index}">
+                            <div class="hist-content">${renderAiText(entry.result)}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function toggleHistoryItem(index) {
+            const body = document.getElementById('histBody' + index);
+            const toggle = document.getElementById('histToggle' + index);
+
+            if (body.classList.contains('expanded')) {
+                body.classList.remove('expanded');
+                toggle.classList.remove('expanded');
+            } else {
+                body.classList.add('expanded');
+                toggle.classList.add('expanded');
+            }
+        }
+
+        function clearHistory() {
+            analysisHistory.length = 0;
+            renderHistory();
+            showToast('History cleared', 'success');
+        }
+
+        document.getElementById('askInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                askQuestion();
+            }
+        });
+    </script>
+</body>
+</html>

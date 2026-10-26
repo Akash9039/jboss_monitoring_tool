@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory &amp; GC - JBoss Monitor</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .chart-and-metrics {
+            display: flex;
+            gap: 24px;
+            align-items: flex-start;
+        }
+        .chart-side {
+            flex: 0 0 220px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .chart-side canvas {
+            max-width: 200px;
+            max-height: 200px;
+        }
+        .metrics-side {
+            flex: 1;
+            min-width: 0;
+        }
+        .mini-progress {
+            width: 80px;
+            display: inline-block;
+        }
+        .pool-type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-family: var(--font-mono);
+            background: rgba(0,212,255,0.06);
+            color: var(--accent);
+            border: 1px solid rgba(0,212,255,0.15);
+            letter-spacing: 0.5px;
+        }
+        .pool-type-badge.non-heap {
+            background: rgba(255,170,0,0.06);
+            color: var(--warning);
+            border-color: rgba(255,170,0,0.15);
+        }
+        .gc-pools-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .gc-pool-tag {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-family: var(--font-mono);
+            background: rgba(0,212,255,0.04);
+            color: var(--text-secondary);
+            border: 1px solid rgba(0,212,255,0.08);
+        }
+        .dep-mem-card {
+            background: rgba(8,18,35,0.5);
+            border: 1px solid rgba(0,212,255,0.08);
+            border-radius: 6px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            backdrop-filter: blur(4px);
+            transition: border-color 0.2s;
+            color: #ffffff;
+        }
+        .dep-mem-card:hover {
+            border-color: rgba(0,212,255,0.2);
+        }
+        .dep-mem-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .dep-mem-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .dep-mem-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+        }
+        .dep-mem-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 16px;
+            font-size: 12px;
+        }
+        .dep-mem-stat-label {
+            color: #ffffff;
+        }
+        .dep-mem-stat-value {
+            font-family: var(--font-mono);
+            font-weight: 500;
+            text-align: right;
+        }
+        .dep-bar-container {
+            margin-top: 4px;
+        }
+        .dep-bar {
+            height: 20px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.02);
+            position: relative;
+            overflow: hidden;
+        }
+        .dep-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s;
+            box-shadow: 0 0 8px currentColor;
+        }
+        .dep-bar-label {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 10px;
+            font-family: var(--font-mono);
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .dep-sub-tag {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-family: var(--font-mono);
+            background: rgba(0,212,255,0.05);
+            color: var(--accent);
+            border: 1px solid rgba(0,212,255,0.1);
+            margin-right: 4px;
+        }
+        @media (max-width: 700px) {
+            .chart-and-metrics {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+        @keyframes heapPulse {
+            0%, 100% { width: 30%; }
+            50% { width: 70%; }
+        }
+        .heap-result {
+            margin-top: 12px;
+            padding: 14px;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+        .heap-result.success {
+            background: rgba(0,255,136,0.04);
+            border: 1px solid rgba(0,255,136,0.15);
+            color: var(--healthy);
+            box-shadow: 0 0 15px rgba(0,255,136,0.05);
+        }
+        .heap-result.error {
+            background: rgba(255,34,68,0.04);
+            border: 1px solid rgba(255,34,68,0.15);
+            color: var(--critical);
+            box-shadow: 0 0 15px rgba(255,34,68,0.05);
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+    <div class="main-content">
+        <div id="page-header"></div>
+        <div class="content">
+
+            <!-- AI Analysis Panel -->
+            <div class="ai-panel">
+                <div class="ai-header">&#9733; AI Memory Analysis</div>
+                <div class="ai-content" id="aiAnalysisContent">Click the button below to run AI memory analysis.</div>
+                <div style="margin-top: 12px;">
+                    <button class="btn btn-primary" onclick="loadAIAnalysis()">&#9733; Analyze Memory</button>
+                </div>
+            </div>
+
+            <!-- Stat Cards Row -->
+            <div class="stats-row">
+                <div class="stat-card">
+                    <div class="stat-label">Heap Used</div>
+                    <div class="stat-value" id="statHeapPct">--<span class="stat-unit">%</span></div>
+                    <div class="stat-sub" id="statHeapPctSub">of max heap</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Heap Memory</div>
+                    <div class="stat-value" id="statHeapMB">--<span class="stat-unit">MB</span></div>
+                    <div class="stat-sub" id="statHeapMax">Max: -- MB</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Non-Heap Used</div>
+                    <div class="stat-value" id="statNonHeapMB">--<span class="stat-unit">MB</span></div>
+                    <div class="stat-sub" id="statNonHeapCommitted">Committed: -- MB</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">GC Collections</div>
+                    <div class="stat-value" id="statGCCount">--</div>
+                    <div class="stat-sub" id="statGCTime">Total time: --</div>
+                </div>
+            </div>
+
+            <!-- Two-column grid: Heap and Non-Heap -->
+            <div class="grid-2">
+                <!-- Heap Memory Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Heap Memory</h3>
+                        <span class="badge badge-info" id="heapHealthBadge">--</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-and-metrics">
+                            <div class="chart-side">
+                                <canvas id="heapChart"></canvas>
+                            </div>
+                            <div class="metrics-side">
+                                <div id="heapMetrics">
+                                    <div class="metric-row">
+                                        <span class="metric-label">Init</span>
+                                        <span class="metric-value" id="heapInit">-- <span class="stat-unit">MB</span></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Used</span>
+                                        <span class="metric-value" id="heapUsed">-- <span class="stat-unit">MB</span></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Committed</span>
+                                        <span class="metric-value" id="heapCommitted">-- <span class="stat-unit">MB</span></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Max</span>
+                                        <span class="metric-value" id="heapMax">-- <span class="stat-unit">MB</span></span>
+                                    </div>
+                                    <div id="heapProgressContainer" style="margin-top: 12px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Non-Heap Memory Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Non-Heap Memory</h3>
+                        <span class="badge badge-info" id="nonHeapHealthBadge">--</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-and-metrics">
+                            <div class="chart-side">
+                                <canvas id="nonHeapChart"></canvas>
+                            </div>
+                            <div class="metrics-side">
+                                <div id="nonHeapMetrics">
+                                    <div class="metric-row">
+                                        <span class="metric-label">Init</span>
+                                        <span class="metric-value" id="nonHeapInit">-- <span class="stat-unit">MB</span></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Used</span>
+                                        <span class="metric-value" id="nonHeapUsed">-- <span class="stat-unit">MB</span></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Committed</span>
+                                        <span class="metric-value" id="nonHeapCommitted">-- <span class="stat-unit">MB</span></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Max</span>
+                                        <span class="metric-value" id="nonHeapMax">-- <span class="stat-unit">MB</span></span>
+                                    </div>
+                                    <div id="nonHeapProgressContainer" style="margin-top: 12px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Memory Pools Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Memory Pools</h3>
+                    <button class="btn" onclick="refreshData()">&#8635; Refresh Data</button>
+                </div>
+                <div class="card-body no-padding">
+                    <table class="data-table" id="poolsTable">
+                        <thead id="poolsTableHead">
+                            <tr>
+                                <th>Pool Name</th>
+                                <th>Type</th>
+                                <th>Used (MB)</th>
+                                <th>Committed (MB)</th>
+                                <th>Max (MB)</th>
+                                <th>Peak (MB)</th>
+                                <th>Usage</th>
+                            </tr>
+                        </thead>
+                        <tbody id="poolsTableBody">
+                            <tr><td colspan="7" class="empty-state"><p>Loading memory pool data...</p></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Garbage Collectors Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Garbage Collectors</h3>
+                </div>
+                <div class="card-body no-padding">
+                    <table class="data-table" id="gcTable">
+                        <thead id="gcTableHead">
+                            <tr>
+                                <th>Name</th>
+                                <th>Collections</th>
+                                <th>Total Time</th>
+                                <th>Avg Time</th>
+                                <th>Memory Pools Managed</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gcTableBody">
+                            <tr><td colspan="5" class="empty-state"><p>Loading GC data...</p></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Deployment Memory Usage -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Deployment Memory Usage</h3>
+                    <span class="badge badge-info" id="depMemBadge">--</span>
+                </div>
+                <div class="card-body">
+                    <div id="depMemContent">
+                        <div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">Loading deployment memory data...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Generate Heap Dump -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Generate Heap Dump</h3>
+                    <button class="btn btn-primary" id="btnHeapDump" onclick="generateHeapDump()" style="font-size: 12px;">&#9660; Generate Heap Dump (.hprof)</button>
+                </div>
+                <div class="card-body">
+                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+                        Generates a JVM heap dump in <strong>.hprof</strong> format and saves it to <code style="color: var(--accent);">$JBOSS_HOME/heap_dump/</code>.
+                        Use tools like <strong>Eclipse MAT</strong>, <strong>VisualVM</strong>, or <strong>jhat</strong> to analyze memory leaks and object retention.
+                    </p>
+                    <div style="padding: 10px 14px; background: rgba(210,153,34,0.06); border: 1px solid rgba(210,153,34,0.15); border-radius: 6px; font-size: 11px; color: var(--warning); margin-bottom: 12px;">
+                        &#9888; Heap dumps can be large (hundreds of MB) and may cause a brief pause in the JVM. Use with caution in production.
+                    </div>
+                    <div id="heapDumpProgress" style="display: none;">
+                        <div style="height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;">
+                            <div id="heapDumpBar" style="height: 100%; width: 30%; background: var(--accent); border-radius: 2px; animation: heapPulse 1.5s ease-in-out infinite;"></div>
+                        </div>
+                        <div id="heapDumpStatus" style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">Generating heap dump...</div>
+                    </div>
+                    <div id="heapDumpResult"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+        // ---- Charts ----
+        let heapChartInstance = null;
+        let nonHeapChartInstance = null;
+
+        const chartColors = {
+            used: '#00d4ff',
+            free: 'rgba(255,255,255,0.06)',
+            usedBorder: '#79b8ff',
+            freeBorder: 'rgba(255,255,255,0.1)'
+        };
+
+        function createDoughnutChart(canvasId, used, total, label) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            const free = Math.max(total - used, 0);
+
+            const config = {
+                type: 'doughnut',
+                data: {
+                    labels: ['Used', 'Free'],
+                    datasets: [{
+                        data: [used, free],
+                        backgroundColor: [chartColors.used, chartColors.free],
+                        borderColor: [chartColors.usedBorder, chartColors.freeBorder],
+                        borderWidth: 1,
+                        hoverOffset: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    cutout: '65%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#1e2a3a',
+                            titleColor: '#e6edf3',
+                            bodyColor: '#8b949e',
+                            borderColor: '#2d3f52',
+                            borderWidth: 1,
+                            callbacks: {
+                                label: function(context) {
+                                    return context.label + ': ' + context.parsed + ' MB';
+                                }
+                            }
+                        }
+                    }
+                },
+                plugins: [{
+                    id: 'centerText',
+                    beforeDraw: function(chart) {
+                        const { width, height, ctx } = chart;
+                        ctx.restore();
+                        const pct = total > 0 ? Math.round((used / total) * 100) : 0;
+                        ctx.font = '700 20px JetBrains Mono, monospace';
+                        ctx.fillStyle = '#e6edf3';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(pct + '%', width / 2, height / 2 - 6);
+                        ctx.font = '11px -apple-system, sans-serif';
+                        ctx.fillStyle = '#8b949e';
+                        ctx.fillText(label, width / 2, height / 2 + 14);
+                        ctx.save();
+                    }
+                }]
+            };
+
+            return new Chart(ctx, config);
+        }
+
+        function updateDoughnutChart(chart, used, total) {
+            const free = Math.max(total - used, 0);
+            chart.data.datasets[0].data = [used, free];
+            chart.update();
+        }
+
+        // ---- UI Update Functions ----
+        function getUsagePctClass(pct) {
+            if (pct >= 85) return 'critical';
+            if (pct >= 60) return 'warning';
+            return 'healthy';
+        }
+
+        function formatMBValue(val) {
+            if (val < 0) return 'N/A';
+            return formatNumber(val);
+        }
+
+        function updateStatCards(data) {
+            const heapPct = data.heap.max > 0 ? Math.round((data.heap.used / data.heap.max) * 100) : 0;
+            const pctClass = getUsagePctClass(heapPct);
+
+            document.getElementById('statHeapPct').innerHTML = `<span class="${pctClass}">${heapPct}</span><span class="stat-unit">%</span>`;
+            document.getElementById('statHeapPctSub').textContent = 'of ' + formatMBValue(data.heap.max) + ' MB max heap';
+            document.getElementById('statHeapMB').innerHTML = `${formatMBValue(data.heap.used)}<span class="stat-unit">MB</span>`;
+            document.getElementById('statHeapMax').textContent = 'Max: ' + formatMBValue(data.heap.max) + ' MB';
+            document.getElementById('statNonHeapMB').innerHTML = `${formatMBValue(data.nonHeap.used)}<span class="stat-unit">MB</span>`;
+            document.getElementById('statNonHeapCommitted').textContent = 'Committed: ' + formatMBValue(data.nonHeap.committed) + ' MB';
+
+            const totalCollections = data.gc.reduce((sum, g) => sum + g.collections, 0);
+            const totalGCTime = data.gc.reduce((sum, g) => sum + g.totalTime, 0);
+            document.getElementById('statGCCount').textContent = formatNumber(totalCollections);
+            document.getElementById('statGCTime').textContent = 'Total time: ' + formatMs(totalGCTime);
+        }
+
+        function updateHeapCard(data) {
+            const heap = data.heap;
+            const pct = heap.max > 0 ? Math.round((heap.used / heap.max) * 100) : 0;
+            const pctClass = getUsagePctClass(pct);
+
+            document.getElementById('heapHealthBadge').className = 'badge badge-' + pctClass;
+            document.getElementById('heapHealthBadge').textContent = pct + '% Used';
+            document.getElementById('heapInit').innerHTML = formatMBValue(heap.init) + ' <span class="stat-unit">MB</span>';
+            document.getElementById('heapUsed').innerHTML = formatMBValue(heap.used) + ' <span class="stat-unit">MB</span>';
+            document.getElementById('heapCommitted').innerHTML = formatMBValue(heap.committed) + ' <span class="stat-unit">MB</span>';
+            document.getElementById('heapMax').innerHTML = formatMBValue(heap.max) + ' <span class="stat-unit">MB</span>';
+            document.getElementById('heapProgressContainer').innerHTML = createProgressBar(pct);
+
+            if (heapChartInstance) {
+                updateDoughnutChart(heapChartInstance, heap.used, heap.max > 0 ? heap.max : heap.committed);
+            } else {
+                heapChartInstance = createDoughnutChart('heapChart', heap.used, heap.max > 0 ? heap.max : heap.committed, 'Heap');
+            }
+
+            var perServerEl = document.getElementById('heapPerServer');
+            if (data.perServer && data.perServer.length > 0) {
+                var html = '<div style="margin-top:16px;border-top:1px solid rgba(0,212,255,0.08);padding-top:12px;"><div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;font-weight:600;">Per Server</div>';
+                data.perServer.forEach(function(s) {
+                    var h = s.heap;
+                    var pct = h.max_mb > 0 ? Math.round((h.used_mb / h.max_mb) * 100) : 0;
+                    var cls = pct >= 85 ? 'critical' : (pct >= 60 ? 'warning' : 'healthy');
+                    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;">'
+                        + '<span class="badge badge-info" style="font-size:10px;min-width:120px;text-align:center;">' + escapeHtml(s.server_name) + '</span>'
+                        + '<div style="flex:1;">' + createProgressBar(pct) + '</div>'
+                        + '<span class="mono ' + cls + '" style="min-width:80px;text-align:right;">' + formatMBValue(h.used_mb) + ' / ' + formatMBValue(h.max_mb) + ' MB</span>'
+                        + '</div>';
+                });
+                html += '</div>';
+                if (!perServerEl) {
+                    perServerEl = document.createElement('div');
+                    perServerEl.id = 'heapPerServer';
+                    document.getElementById('heapMetrics').appendChild(perServerEl);
+                }
+                perServerEl.innerHTML = html;
+            } else if (perServerEl) {
+                perServerEl.innerHTML = '';
+            }
+        }
+
+        function updateNonHeapCard(data) {
+            const nh = data.nonHeap;
+            const total = nh.max > 0 ? nh.max : nh.committed;
+            const pct = total > 0 ? Math.round((nh.used / total) * 100) : 0;
+            const pctClass = getUsagePctClass(pct);
+
+            document.getElementById('nonHeapHealthBadge').className = 'badge badge-' + pctClass;
+            document.getElementById('nonHeapHealthBadge').textContent = pct + '% Used';
+            document.getElementById('nonHeapInit').innerHTML = formatMBValue(nh.init) + ' <span class="stat-unit">MB</span>';
+            document.getElementById('nonHeapUsed').innerHTML = formatMBValue(nh.used) + ' <span class="stat-unit">MB</span>';
+            document.getElementById('nonHeapCommitted').innerHTML = formatMBValue(nh.committed) + ' <span class="stat-unit">MB</span>';
+            document.getElementById('nonHeapMax').innerHTML = (nh.max > 0 ? formatMBValue(nh.max) : 'Unlimited') + ' <span class="stat-unit">' + (nh.max > 0 ? 'MB' : '') + '</span>';
+            document.getElementById('nonHeapProgressContainer').innerHTML = createProgressBar(pct);
+
+            if (nonHeapChartInstance) {
+                updateDoughnutChart(nonHeapChartInstance, nh.used, total);
+            } else {
+                nonHeapChartInstance = createDoughnutChart('nonHeapChart', nh.used, total, 'Non-Heap');
+            }
+        }
+
+        function updatePoolsTable(data) {
+            var tbody = document.getElementById('poolsTableBody');
+            var showServer = data.pools && data.pools.some(function(p) { return p.server_name; });
+            var thead = document.getElementById('poolsTableHead');
+            var colCount = 7;
+            if (showServer) {
+                colCount = 8;
+                thead.innerHTML = '<tr><th>Server</th><th>Pool Name</th><th>Type</th><th>Used (MB)</th><th>Committed (MB)</th><th>Max (MB)</th><th>Peak (MB)</th><th>Usage</th></tr>';
+            } else {
+                thead.innerHTML = '<tr><th>Pool Name</th><th>Type</th><th>Used (MB)</th><th>Committed (MB)</th><th>Max (MB)</th><th>Peak (MB)</th><th>Usage</th></tr>';
+            }
+            if (!data.pools || data.pools.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '" class="empty-state"><div class="empty-icon">&#9618;</div><p>No memory pool data available</p></td></tr>';
+                return;
+            }
+
+            var rows = data.pools.map(function(pool) {
+                var total = pool.max > 0 ? pool.max : pool.committed;
+                var pct = total > 0 ? Math.round((pool.used / total) * 100) : 0;
+                var isNonHeap = pool.type === 'Non-Heap';
+                var typeClass = isNonHeap ? 'pool-type-badge non-heap' : 'pool-type-badge';
+                var serverCol = showServer ? '<td><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(pool.server_name || '') + '</span></td>' : '';
+
+                return '<tr>'
+                    + serverCol
+                    + '<td><strong>' + escapeHtml(pool.name) + '</strong></td>'
+                    + '<td><span class="' + typeClass + '">' + escapeHtml(pool.type) + '</span></td>'
+                    + '<td class="mono">' + formatMBValue(pool.used) + '</td>'
+                    + '<td class="mono">' + formatMBValue(pool.committed) + '</td>'
+                    + '<td class="mono">' + (pool.max > 0 ? formatMBValue(pool.max) : 'N/A') + '</td>'
+                    + '<td class="mono">' + formatMBValue(pool.peak) + '</td>'
+                    + '<td><div class="mini-progress">' + createProgressBar(pct) + '</div><span class="mono" style="font-size:11px; color:var(--text-muted); margin-left:6px;">' + pct + '%</span></td>'
+                    + '</tr>';
+            });
+            paginateTable('poolsTableBody', rows);
+        }
+
+        function updateGCTable(data) {
+            var tbody = document.getElementById('gcTableBody');
+            var showServer = data.gc && data.gc.some(function(g) { return g.server_name; });
+            var thead = document.getElementById('gcTableHead');
+            var colCount = 5;
+            if (showServer) {
+                colCount = 6;
+                thead.innerHTML = '<tr><th>Server</th><th>Name</th><th>Collections</th><th>Total Time</th><th>Avg Time</th><th>Memory Pools Managed</th></tr>';
+            } else {
+                thead.innerHTML = '<tr><th>Name</th><th>Collections</th><th>Total Time</th><th>Avg Time</th><th>Memory Pools Managed</th></tr>';
+            }
+            if (!data.gc || data.gc.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '" class="empty-state"><div class="empty-icon">&#9881;</div><p>No garbage collector data available</p></td></tr>';
+                return;
+            }
+
+            var rows = data.gc.map(function(gc) {
+                var avgTime = gc.collections > 0 ? (gc.totalTime / gc.collections).toFixed(1) : 0;
+                var poolTags = gc.pools.map(function(p) { return '<span class="gc-pool-tag">' + escapeHtml(p) + '</span>'; }).join('');
+                var serverCol = showServer ? '<td><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(gc.server_name || '') + '</span></td>' : '';
+
+                return '<tr>'
+                    + serverCol
+                    + '<td><strong>' + escapeHtml(gc.name) + '</strong></td>'
+                    + '<td class="mono">' + formatNumber(gc.collections) + '</td>'
+                    + '<td class="mono">' + formatMs(gc.totalTime) + '</td>'
+                    + '<td class="mono">' + avgTime + ' ms</td>'
+                    + '<td><div class="gc-pools-list">' + poolTags + '</div></td>'
+                    + '</tr>';
+            });
+            paginateTable('gcTableBody', rows);
+        }
+
+        // ---- Data loading ----
+        async function loadData() {
+            try {
+                const [memoryResp, poolsResp, gcResp] = await Promise.all([
+                    fetchData('/memory'),
+                    fetchData('/memory-pools'),
+                    fetchData('/gc')
+                ]);
+
+                const mem = memoryResp.memory;
+                const data = {
+                    heap: {
+                        init: mem.heap.init_mb,
+                        used: mem.heap.used_mb,
+                        committed: mem.heap.committed_mb,
+                        max: mem.heap.max_mb
+                    },
+                    nonHeap: {
+                        init: mem.non_heap.init_mb,
+                        used: mem.non_heap.used_mb,
+                        committed: mem.non_heap.committed_mb,
+                        max: mem.non_heap.max_mb
+                    },
+                    perServer: mem.per_server || null,
+                    pools: (poolsResp.pools || []).map(function(p) {
+                        var item = {
+                            name: p.name.replace(/_/g, ' '),
+                            type: p.type === 'HEAP' ? 'Heap' : 'Non-Heap',
+                            used: p.usage.used_mb,
+                            committed: p.usage.committed_mb,
+                            max: p.usage.max_mb,
+                            peak: p.peak_usage.used_mb
+                        };
+                        if (p.server_name) item.server_name = p.server_name;
+                        return item;
+                    }),
+                    gc: (gcResp.garbage_collectors || []).map(function(g) {
+                        var item = {
+                            name: g.name.replace(/_/g, ' '),
+                            collections: g.collection_count,
+                            totalTime: g.collection_time_ms,
+                            pools: (g.memory_pool_names || []).map(function(n) { return n.replace(/_/g, ' '); })
+                        };
+                        if (g.server_name) item.server_name = g.server_name;
+                        return item;
+                    })
+                };
+
+                updateStatCards(data);
+                updateHeapCard(data);
+                updateNonHeapCard(data);
+                updatePoolsTable(data);
+                updateGCTable(data);
+            } catch (err) {
+                showToast('Failed to load memory data: ' + err.message, 'error');
+            }
+        }
+
+        async function loadAIAnalysis() {
+            const el = document.getElementById('aiAnalysisContent');
+            el.className = 'ai-content loading';
+            el.textContent = 'Analyzing memory and garbage collection metrics...';
+
+            try {
+                const text = await fetchAPI('/jboss/memory');
+                el.className = 'ai-content';
+                el.textContent = text;
+            } catch (err) {
+                el.className = 'ai-content';
+                el.innerHTML = '<span style="color: var(--critical);">Failed to load AI analysis: ' + escapeHtml(err.message) + '</span>';
+            }
+        }
+
+        async function loadDeploymentMemory() {
+            try {
+                var data = await fetchData('/deployment-resources');
+                if (data.error) {
+                    document.getElementById('depMemContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--critical);">Error: ' + escapeHtml(data.error) + '</div>';
+                    return;
+                }
+                var deps = data.deployments || [];
+                document.getElementById('depMemBadge').textContent = deps.length + ' deployments';
+
+                if (deps.length === 0) {
+                    document.getElementById('depMemContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">No deployments found.</div>';
+                    return;
+                }
+
+                var totalEstKB = 0;
+                for (var di = 0; di < deps.length; di++) {
+                    totalEstKB += deps[di].estimated_memory_kb || 0;
+                }
+
+                var DEP_COLORS = ['#00d4ff', '#00ff88', '#ffaa00', '#ff2244', '#aa44ff', '#40e0ff'];
+                var html = '<div class="dep-mem-grid">';
+
+                for (var di = 0; di < deps.length; di++) {
+                    var d = deps[di];
+                    var estKB = d.estimated_memory_kb || 0;
+                    var estMB = (estKB / 1024).toFixed(1);
+                    var pct = totalEstKB > 0 ? Math.round((estKB / totalEstKB) * 100) : 0;
+                    var barColor = DEP_COLORS[di % DEP_COLORS.length];
+                    var statusClass = d.enabled ? 'badge-healthy' : 'badge-critical';
+
+                    html += '<div class="dep-mem-card">';
+                    html += '<div class="dep-mem-header">';
+                    html += '<span class="dep-mem-name">' + escapeHtml(d.name) + '</span>';
+                    html += '<span class="badge ' + statusClass + '">' + (d.enabled ? 'ACTIVE' : 'DISABLED') + '</span>';
+                    html += '</div>';
+
+                    html += '<div class="dep-bar-container"><div class="dep-bar">';
+                    html += '<div class="dep-bar-fill" style="width:' + pct + '%;background:' + barColor + ';"></div>';
+                    html += '<span class="dep-bar-label">' + estMB + ' MB est. (' + pct + '%)</span>';
+                    html += '</div></div>';
+
+                    html += '<div class="dep-mem-stats">';
+                    html += '<span class="dep-mem-stat-label">Active Sessions</span>';
+                    html += '<span class="dep-mem-stat-value">' + (d.active_sessions != null ? d.active_sessions : '-') + '</span>';
+                    html += '<span class="dep-mem-stat-label">Sessions Created</span>';
+                    html += '<span class="dep-mem-stat-value">' + (d.sessions_created != null ? d.sessions_created : '-') + '</span>';
+                    html += '<span class="dep-mem-stat-label">Total Requests</span>';
+                    html += '<span class="dep-mem-stat-value">' + (d.total_requests != null ? formatNumber(d.total_requests) : '-') + '</span>';
+                    html += '<span class="dep-mem-stat-label">Request Time</span>';
+                    html += '<span class="dep-mem-stat-value">' + (d.total_request_time_ms != null ? formatMs(d.total_request_time_ms) : '-') + '</span>';
+                    html += '<span class="dep-mem-stat-label">Servlets</span>';
+                    html += '<span class="dep-mem-stat-value">' + (d.servlet_count != null ? d.servlet_count : '-') + '</span>';
+                    html += '<span class="dep-mem-stat-label">REST Endpoints</span>';
+                    html += '<span class="dep-mem-stat-value">' + (d.rest_endpoint_count != null ? d.rest_endpoint_count : '-') + '</span>';
+
+                    if (d.jpa && d.jpa.length > 0) {
+                        for (var ji = 0; ji < d.jpa.length; ji++) {
+                            var pu = d.jpa[ji];
+                            html += '<span class="dep-mem-stat-label">JPA Entities</span>';
+                            html += '<span class="dep-mem-stat-value">' + pu.entity_count + '</span>';
+                            html += '<span class="dep-mem-stat-label">JPA Sessions</span>';
+                            html += '<span class="dep-mem-stat-value">' + pu.session_open_count + ' open / ' + pu.session_close_count + ' closed</span>';
+                            html += '<span class="dep-mem-stat-label">L2 Cache</span>';
+                            html += '<span class="dep-mem-stat-value">' + pu.l2_cache_entries + ' entries</span>';
+                        }
+                    }
+                    html += '</div>';
+
+                    if (d.subsystems && d.subsystems.length > 0) {
+                        html += '<div style="margin-top:4px;">';
+                        for (var si = 0; si < d.subsystems.length; si++) {
+                            html += '<span class="dep-sub-tag">' + escapeHtml(d.subsystems[si]) + '</span>';
+                        }
+                        html += '</div>';
+                    }
+
+                    html += '</div>';
+                }
+                html += '</div>';
+                document.getElementById('depMemContent').innerHTML = html;
+            } catch (err) {
+                document.getElementById('depMemContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--critical);font-size:13px;">Failed to load: ' + escapeHtml(err.message) + '</div>';
+            }
+        }
+
+        async function generateHeapDump() {
+            var btn = document.getElementById('btnHeapDump');
+            var progressEl = document.getElementById('heapDumpProgress');
+            var resultEl = document.getElementById('heapDumpResult');
+
+            btn.disabled = true;
+            btn.innerHTML = '&#8987; Generating...';
+            progressEl.style.display = 'block';
+            resultEl.innerHTML = '';
+            document.getElementById('heapDumpStatus').textContent = 'Generating heap dump (this may take a minute)...';
+
+            try {
+                var resp = await fetch(MCP_API + '/generate-heap-dump', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: '{}',
+                });
+                var data = await resp.json();
+                progressEl.style.display = 'none';
+
+                if (data.error) {
+                    var details = '';
+                    if (data.details && data.details.length > 0) {
+                        details = '<div style="margin-top:8px; font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">'
+                            + data.details.map(function(d) { return escapeHtml(d); }).join('<br>') + '</div>';
+                    }
+                    if (data.suggestion) {
+                        details += '<div style="margin-top:6px; font-size:12px; color:var(--text-secondary);">' + escapeHtml(data.suggestion) + '</div>';
+                    }
+                    resultEl.innerHTML = '<div class="heap-result error">'
+                        + '<div style="font-weight:600;">&#10007; ' + escapeHtml(data.error) + '</div>'
+                        + details + '</div>';
+                } else {
+                    resultEl.innerHTML = '<div class="heap-result success">'
+                        + '<div style="font-weight:600; margin-bottom:6px;">&#10003; Heap Dump Generated Successfully</div>'
+                        + '<div style="font-size:12px; color:var(--text-secondary);">File: <code style="color:var(--accent);">' + escapeHtml(data.file || '') + '</code></div>'
+                        + '<div style="font-size:12px; color:var(--text-secondary);">Size: <strong>' + (data.size_mb || 0) + ' MB</strong></div>'
+                        + '<div style="font-size:12px; color:var(--text-secondary);">Method: <code style="color:var(--accent);">' + escapeHtml(data.method || '') + '</code></div>'
+                        + '<div style="font-size:11px; color:var(--text-muted); margin-top:6px;">Analyze with: <code>jhat ' + escapeHtml(data.filename || '') + '</code> or open in Eclipse MAT / VisualVM</div>'
+                        + '</div>';
+                    showToast('Heap dump saved: ' + (data.filename || ''), 'success');
+                }
+            } catch (err) {
+                progressEl.style.display = 'none';
+                resultEl.innerHTML = '<div class="heap-result error">Failed to generate heap dump: ' + escapeHtml(err.message) + '</div>';
+                showToast('Heap dump failed: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '&#9660; Generate Heap Dump (.hprof)';
+            }
+        }
+
+        async function refreshData() {
+            await loadData();
+            loadDeploymentMemory();
+            showToast('Data refreshed', 'success');
+        }
+
+        // ---- Initialization ----
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('sidebar-container').innerHTML = renderSidebar();
+            document.getElementById('page-header').innerHTML = renderPageHeader('Memory & GC', 'JVM heap, non-heap, memory pools, and garbage collection');
+            setActiveNav();
+
+            loadData();
+            loadDeploymentMemory();
+            setupAutoRefresh(function() { loadData(); loadDeploymentMemory(); });
+        });
+    </script>
+</body>
+</html>

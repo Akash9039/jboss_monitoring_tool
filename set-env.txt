@@ -1,0 +1,23 @@
+# JBoss Monitor Tool - Environment Variables
+# Copy and paste these into your terminal before running the app.
+# Update the values to match your JBoss EAP instance.
+
+export JBOSS_HOST=
+export JBOSS_MGMT_PORT=
+export JBOSS_USER=
+export JBOSS_PASSWORD=
+export JBOSS_PROTOCOL=
+export JBOSS_HOME=
+
+# Domain mode: map each host name to its JBOSS_HOME directory (comma-separated host=path pairs)
+export JBOSS_DOMAIN_HOMES="primary=,slave="
+
+# Logging (INFO, DEBUG, WARN, ERROR, TRACE)
+export LOG_LEVEL=INFO
+
+# AI Analyst (Anthropic Claude API)
+export ANTHROPIC_API_KEY=""
+export ANTHROPIC_MODEL=claude-sonnet-4-6
+export ANTHROPIC_BASE_URL""
+# Then start the app:
+# mvn quarkus:dev

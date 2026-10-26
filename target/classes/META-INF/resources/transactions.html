@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JBoss Monitor - Transactions</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .chart-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 900px) {
+            .chart-row { grid-template-columns: 1fr; }
+        }
+
+        .ai-panel-actions {
+            margin-top: 16px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .detail-section-title {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            padding: 12px 0 4px;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.08);
+            margin-bottom: 0;
+            font-family: var(--font-mono);
+        }
+
+        .detail-section-title:first-child {
+            padding-top: 0;
+        }
+
+        /* Pool session tabs */
+        .tab-bar {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid var(--border-color);
+            margin: -20px -24px 20px -24px;
+            padding: 0 24px;
+        }
+        .tab-btn {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            position: relative;
+            transition: color 0.15s;
+            white-space: nowrap;
+        }
+        .tab-btn:hover { color: var(--text-secondary); }
+        .tab-btn.active { color: var(--accent); }
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--accent);
+            border-radius: 2px 2px 0 0;
+        }
+        .tab-btn .tab-count {
+            display: inline-block;
+            background: rgba(0, 212, 255, 0.1);
+            color: var(--accent);
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 6px;
+            border-radius: 10px;
+            margin-left: 6px;
+            font-family: var(--font-mono);
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        .pool-ds-card {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+        .pool-ds-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: rgba(0, 212, 255, 0.03);
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+        }
+        .pool-ds-header:hover {
+            background: rgba(0, 212, 255, 0.06);
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.05);
+        }
+        .pool-ds-body {
+            padding: 12px 16px;
+        }
+        .pool-mini-stats {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .pool-mini-stat {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .pool-mini-stat strong {
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+        }
+        .sql-cell {
+            font-size: 11px;
+            max-width: 400px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .sql-cell:hover {
+            white-space: normal;
+            word-break: break-all;
+            background: rgba(0, 212, 255, 0.04);
+        }
+        .exec-slow { color: var(--critical); font-weight: 600; }
+        .exec-warn { color: var(--warning); font-weight: 600; }
+        .exec-fast { color: var(--healthy); }
+        .row-alert {
+            background: rgba(255,34,68,0.08);
+            border-left: 3px solid #ff2244;
+            animation: row-alert-pulse 2s ease-in-out infinite;
+        }
+        @keyframes row-alert-pulse {
+            0%, 100% { background: rgba(255,34,68,0.08); }
+            50% { background: rgba(255,34,68,0.14); }
+        }
+        .thread-link {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+            text-underline-offset: 2px;
+        }
+        .thread-link:hover { color: #40e0ff; text-decoration-style: solid; }
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center;
+            backdrop-filter: blur(4px);
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-box {
+            background: rgba(8, 18, 35, 0.95); border: 1px solid rgba(0, 212, 255, 0.15);
+            border-radius: 8px; width: 700px; max-width: 90vw; max-height: 85vh;
+            display: flex; flex-direction: column; box-shadow: 0 16px 48px rgba(0,0,0,0.6), 0 0 30px rgba(0,212,255,0.05);
+            backdrop-filter: blur(12px);
+        }
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 20px; border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+        }
+        .modal-header h3 { margin: 0; font-size: 14px; color: var(--text-primary); font-family: var(--font-mono); letter-spacing: 0.5px; }
+        .modal-close {
+            background: none; border: none; color: var(--text-muted);
+            font-size: 22px; cursor: pointer; padding: 0 4px; line-height: 1;
+        }
+        .modal-close:hover { color: var(--accent); }
+        .modal-body { padding: 16px 20px; overflow-y: auto; }
+        .thread-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+        .thread-meta-item {
+            font-size: 11px; color: var(--text-secondary);
+            background: rgba(0, 212, 255, 0.03); padding: 4px 10px; border-radius: 4px;
+            border: 1px solid rgba(0, 212, 255, 0.08);
+            font-family: var(--font-mono);
+        }
+        .thread-meta-item strong { color: var(--text-primary); margin-left: 4px; }
+        .stack-trace-box {
+            background: rgba(0,0,0,0.4); border: 1px solid rgba(0, 212, 255, 0.08);
+            border-radius: 4px; padding: 12px; font-family: var(--font-mono);
+            font-size: 11px; line-height: 1.6; max-height: 400px; overflow-y: auto;
+            white-space: pre-wrap; word-break: break-all;
+        }
+        .stack-frame-app { color: #00d4ff; }
+        .stack-frame-jboss { color: #ffaa00; }
+    </style>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+    <div class="main-content">
+        <div id="header-container"></div>
+        <div class="content">
+
+            <!-- AI Analysis Panel -->
+            <div class="ai-panel">
+                <div class="ai-header">&#9733; AI Transaction Analysis</div>
+                <div class="ai-content" id="aiTxContentTop">Click the button below to run AI transaction analysis.</div>
+                <div style="margin-top: 12px;">
+                    <button class="btn btn-primary" onclick="runTxAnalysis()">&#9733; Analyze Transactions</button>
+                </div>
+            </div>
+
+            <!-- Stat Cards Row -->
+            <div class="stats-row" id="statsRow">
+                <div class="stat-card">
+                    <div class="stat-label">Total Transactions</div>
+                    <div class="stat-value" id="valTotal">--</div>
+                    <div class="stat-sub">Lifetime transaction count</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Committed</div>
+                    <div class="stat-value healthy" id="valCommitted">--</div>
+                    <div class="stat-sub">Successfully completed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Aborted</div>
+                    <div class="stat-value" id="valAborted">--</div>
+                    <div class="stat-sub">Rolled back transactions</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Timed Out</div>
+                    <div class="stat-value" id="valTimedOut">--</div>
+                    <div class="stat-sub">Exceeded timeout threshold</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Abort Rate</div>
+                    <div class="stat-value" id="valAbortRate">--<span class="stat-unit">%</span></div>
+                    <div id="abortRateProgress"></div>
+                    <div class="stat-sub">Aborted / total transactions</div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="chart-row">
+                <!-- Transaction Distribution -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Transaction Distribution</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="distributionChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rollback Breakdown -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Rollback Breakdown</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="rollbackChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transaction Details -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Transaction Details</h3>
+                    <span class="badge badge-info">All Metrics</span>
+                </div>
+                <div class="card-body" id="txDetailsBody">
+                    <div class="grid-2">
+                        <div>
+                            <div class="detail-section-title">Transaction Outcomes</div>
+                            <div id="detailOutcomes">
+                                <!-- Filled by JS -->
+                            </div>
+                        </div>
+                        <div>
+                            <div class="detail-section-title">Rollback Sources</div>
+                            <div id="detailRollbacks">
+                                <!-- Filled by JS -->
+                            </div>
+
+                            <div class="detail-section-title" style="margin-top: 16px;">Configuration</div>
+                            <div id="detailConfig">
+                                <!-- Filled by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transaction History — from Arjuna transaction.log -->
+            <div class="card" id="txHistoryCard">
+                <div class="card-header">
+                    <h3>Transaction History</h3>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 11px; color: var(--text-muted);">From JBoss Arjuna TX log + JDBC Spy</span>
+                        <button class="btn btn-primary" onclick="loadTxHistory()">&#8635; Load History</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- TX History Stats -->
+                    <div id="txHistoryStats" style="display: none; margin-bottom: 16px;">
+                        <div style="display: flex; gap: 24px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary);">
+                            <span>Total: <strong id="txhTotal" class="mono" style="color: var(--text-primary);">-</strong></span>
+                            <span>Committed: <strong id="txhCommitted" class="mono" style="color: var(--healthy);">-</strong></span>
+                            <span>Aborted: <strong id="txhAborted" class="mono" style="color: var(--critical);">-</strong></span>
+                            <span>In-Flight: <strong id="txhInflight" class="mono" style="color: var(--warning);">-</strong></span>
+                            <span>Avg Duration: <strong id="txhAvgDuration" class="mono" style="color: var(--text-primary);">-</strong></span>
+                        </div>
+                    </div>
+                    <div id="txHistoryBody">
+                        <p style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 32px 0;">Click "Load History" to view individual JTA transactions with tx-id, thread, duration, and correlated SQL queries.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- JBoss Datasource Pool Sessions — Tabbed -->
+            <div class="card" id="poolSessionsCard">
+                <div class="card-header">
+                    <h3>JBoss Datasource Pool Sessions</h3>
+                    <span style="font-size: 11px; color: var(--text-muted);">Data from JBoss Management API + JDBC Spy Log</span>
+                </div>
+                <div class="card-body">
+                    <div class="tab-bar">
+                        <button class="tab-btn active" onclick="switchPoolTab('active', this)">Active Pool Sessions</button>
+                        <button class="tab-btn" onclick="switchPoolTab('history', this)">Session History</button>
+                    </div>
+
+                    <!-- Tab 1: Active Pool Sessions -->
+                    <div class="tab-panel active" id="tabPoolActive">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Connection pool status and in-flight queries per datasource (JBoss only)</p>
+                            <button class="btn btn-primary" onclick="loadPoolSessions()">&#8635; Refresh</button>
+                        </div>
+                        <div id="poolSessionsBody">
+                            <p style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 32px 0;">Click "Refresh" to load pool sessions from JBoss.</p>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Session History -->
+                    <div class="tab-panel" id="tabPoolHistory">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Completed query sessions from JDBC Spy log (JBoss only — no DB required)</p>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <select id="historyDsFilter" style="background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; font-size: 12px;">
+                                    <option value="">All Datasources</option>
+                                </select>
+                                <button class="btn btn-primary" onclick="loadSpySessionHistory()">&#8635; Load History</button>
+                            </div>
+                        </div>
+                        <div id="spyHistoryBody">
+                            <p style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 32px 0;">Click "Load History" to view completed query sessions.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Thread Stack Trace Modal -->
+            <div class="modal-overlay" id="threadModal" onclick="if(event.target===this)closeThreadModal()">
+                <div class="modal-box">
+                    <div class="modal-header">
+                        <h3 id="threadModalTitle">Thread Details</h3>
+                        <button class="modal-close" onclick="closeThreadModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" id="threadModalBody">
+                        <p style="color: var(--text-muted);">Loading...</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+        // Render layout components
+        document.getElementById('sidebar-container').innerHTML = renderSidebar();
+        document.getElementById('header-container').innerHTML = renderPageHeader(
+            'Transactions',
+            'JTA transaction statistics, abort rates, and timeout analysis'
+        );
+        setActiveNav();
+
+        // --- Live transaction data ---
+        let txData = null;
+
+        // --- Abort Rate Health ---
+        function getAbortRateHealth(rate) {
+            if (rate > 20) return 'critical';
+            if (rate > 10) return 'warning';
+            if (rate > 5) return 'moderate';
+            return 'healthy';
+        }
+
+        // --- Populate Stat Cards ---
+        function populateStats() {
+            if (!txData) return;
+            document.getElementById('valTotal').textContent = formatNumber(txData.total);
+
+            document.getElementById('valCommitted').textContent = formatNumber(txData.committed);
+
+            const abortedEl = document.getElementById('valAborted');
+            abortedEl.textContent = formatNumber(txData.aborted);
+            abortedEl.className = 'stat-value ' + (txData.aborted > 0 ? 'warning' : 'healthy');
+
+            const timedOutEl = document.getElementById('valTimedOut');
+            timedOutEl.textContent = formatNumber(txData.timed_out);
+            timedOutEl.className = 'stat-value ' + (txData.timed_out > 0 ? 'warning' : 'healthy');
+
+            const abortRate = txData.total > 0
+                ? ((txData.aborted / txData.total) * 100)
+                : 0;
+            const abortRateEl = document.getElementById('valAbortRate');
+            abortRateEl.innerHTML = abortRate.toFixed(1) + '<span class="stat-unit">%</span>';
+            abortRateEl.className = 'stat-value ' + getAbortRateHealth(abortRate);
+
+            document.getElementById('abortRateProgress').innerHTML = createProgressBar(
+                abortRate,
+                { warning: 5, critical: 20 }
+            );
+        }
+
+        // --- Charts ---
+        let distributionChartInstance = null;
+        let rollbackChartInstance = null;
+
+        function renderDistributionChart() {
+            if (!txData) return;
+            const ctx = document.getElementById('distributionChart').getContext('2d');
+            if (distributionChartInstance) distributionChartInstance.destroy();
+
+            distributionChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Committed', 'Aborted', 'Timed Out'],
+                    datasets: [{
+                        data: [txData.committed, txData.aborted, txData.timed_out],
+                        backgroundColor: [
+                            'rgba(63, 185, 80, 0.8)',
+                            'rgba(210, 153, 34, 0.8)',
+                            'rgba(248, 81, 73, 0.8)'
+                        ],
+                        borderColor: [
+                            'rgba(63, 185, 80, 1)',
+                            'rgba(210, 153, 34, 1)',
+                            'rgba(248, 81, 73, 1)'
+                        ],
+                        borderWidth: 2,
+                        spacing: 2,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '60%',
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#8b949e',
+                                padding: 16,
+                                usePointStyle: true,
+                                pointStyleWidth: 12,
+                                font: { size: 12 }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: '#1e2a3a',
+                            titleColor: '#e6edf3',
+                            bodyColor: '#8b949e',
+                            borderColor: '#2d3f52',
+                            borderWidth: 1,
+                            padding: 12,
+                            callbacks: {
+                                label: function(context) {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const pct = ((context.raw / total) * 100).toFixed(1);
+                                    return context.label + ': ' + formatNumber(context.raw) + ' (' + pct + '%)';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderRollbackChart() {
+            if (!txData) return;
+            const ctx = document.getElementById('rollbackChart').getContext('2d');
+            if (rollbackChartInstance) rollbackChartInstance.destroy();
+
+            rollbackChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Application', 'Resource', 'System'],
+                    datasets: [{
+                        label: 'Rollbacks',
+                        data: [txData.application_rollbacks, txData.resource_rollbacks, txData.system_rollbacks],
+                        backgroundColor: [
+                            'rgba(88, 166, 255, 0.7)',
+                            'rgba(210, 153, 34, 0.7)',
+                            'rgba(248, 81, 73, 0.7)'
+                        ],
+                        borderColor: [
+                            'rgba(88, 166, 255, 1)',
+                            'rgba(210, 153, 34, 1)',
+                            'rgba(248, 81, 73, 1)'
+                        ],
+                        borderWidth: 2,
+                        borderRadius: 4,
+                        barPercentage: 0.6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: '#1e2a3a',
+                            titleColor: '#e6edf3',
+                            bodyColor: '#8b949e',
+                            borderColor: '#2d3f52',
+                            borderWidth: 1,
+                            padding: 12,
+                            callbacks: {
+                                label: function(context) {
+                                    return 'Rollbacks: ' + formatNumber(context.raw);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#8b949e', font: { size: 12 } },
+                            grid: { display: false },
+                            border: { color: '#2d3f52' }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#6e7681',
+                                font: { size: 11 },
+                                callback: function(value) { return formatNumber(value); }
+                            },
+                            grid: { color: 'rgba(45, 63, 82, 0.4)', lineWidth: 1 },
+                            border: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- Transaction Details ---
+        function populateDetails() {
+            if (!txData) return;
+
+            document.getElementById('detailOutcomes').innerHTML =
+                createMetricRow('Committed', formatNumber(txData.committed)) +
+                createMetricRow('Aborted', formatNumber(txData.aborted)) +
+                createMetricRow('Timed Out', formatNumber(txData.timed_out)) +
+                createMetricRow('In-Flight', formatNumber(txData.inflight)) +
+                createMetricRow('Nested', formatNumber(txData.nested)) +
+                createMetricRow('Heuristics', formatNumber(txData.heuristics));
+
+            document.getElementById('detailRollbacks').innerHTML =
+                createMetricRow('Application Rollbacks', formatNumber(txData.application_rollbacks)) +
+                createMetricRow('Resource Rollbacks', formatNumber(txData.resource_rollbacks)) +
+                createMetricRow('System Rollbacks', formatNumber(txData.system_rollbacks));
+
+            document.getElementById('detailConfig').innerHTML =
+                createMetricRow('Default Timeout', txData.default_timeout, 's') +
+                createMetricRow('Node Identifier', txData.node_identifier || '--') +
+                createMetricRow('JTS Enabled', txData.jts ? 'Yes' : 'No') +
+                createMetricRow('Health', txData.health || '--');
+        }
+
+        // --- AI Analysis ---
+        async function runTxAnalysis() {
+            const el = document.getElementById('aiTxContentTop');
+            el.className = 'ai-content loading';
+            el.textContent = 'Analyzing transaction statistics...';
+
+            try {
+                const text = await fetchAPI('/jboss/transactions');
+                el.className = 'ai-content';
+                el.textContent = text;
+            } catch (err) {
+                el.className = 'ai-content';
+                el.textContent = 'Failed to load transaction analysis: ' + err.message;
+                showToast('Transaction analysis failed: ' + err.message, 'error');
+            }
+        }
+
+        // --- Transaction History (Arjuna TX log + Spy) ---
+        async function loadTxHistory() {
+            var body = document.getElementById('txHistoryBody');
+            var statsEl = document.getElementById('txHistoryStats');
+            body.innerHTML = '<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line medium"></div><div class="skeleton skeleton-line short"></div>';
+            statsEl.style.display = 'none';
+
+            try {
+                var data = await fetchData('/transactions/history');
+
+                if (data.status === 'not_configured') {
+                    body.innerHTML = '<div style="text-align: center; padding: 32px; color: var(--text-muted);">'
+                        + '<div style="font-size: 40px; margin-bottom: 12px; opacity: 0.3;">&#9888;</div>'
+                        + '<p style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">Transaction Logging Not Configured</p>'
+                        + '<p style="font-size: 12px;">Enable Arjuna TRACE logging in JBoss:</p>'
+                        + '<pre style="text-align: left; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 6px; margin-top: 12px; font-size: 11px; color: var(--accent);">'
+                        + '/subsystem=logging/logger=com.arjuna:write-attribute(name=level, value=TRACE)\n'
+                        + '# Create dedicated log file:\n'
+                        + '/subsystem=logging/periodic-rotating-file-handler=TX_LOG:add(\\\n'
+                        + '    file={relative-to=jboss.server.log.dir, path=transaction.log},\\\n'
+                        + '    suffix=.yyyy-MM-dd, level=TRACE)\n'
+                        + '/subsystem=logging/logger=com.arjuna:add-handler(name=TX_LOG)\n'
+                        + ':reload</pre></div>';
+                    return;
+                }
+
+                var txns = data.transactions || [];
+
+                // Stats
+                statsEl.style.display = 'block';
+                document.getElementById('txhTotal').textContent = data.total || 0;
+                document.getElementById('txhCommitted').textContent = data.committed || 0;
+                document.getElementById('txhAborted').textContent = data.aborted || 0;
+                document.getElementById('txhInflight').textContent = data.inflight || 0;
+                document.getElementById('txhAvgDuration').textContent = fmtExecTime(data.avg_duration_ms || 0);
+
+                // Update stat cards with history totals (more accurate across restarts)
+                if (data.total > 0) {
+                    var hCommitted = data.committed || 0;
+                    var hAborted = data.aborted || 0;
+                    var hTimedOut = 0;
+                    var hTotal = data.total || 0;
+                    var hInflight = data.inflight || 0;
+                    if (!txData) txData = {};
+                    txData.committed = Math.max(txData.committed || 0, hCommitted);
+                    txData.aborted = Math.max(txData.aborted || 0, hAborted);
+                    txData.timed_out = Math.max(txData.timed_out || 0, hTimedOut);
+                    txData.total = txData.committed + txData.aborted;
+                    txData.inflight = Math.max(txData.inflight || 0, hInflight);
+                    populateStats();
+                    renderDistributionChart();
+                    renderRollbackChart();
+                    populateDetails();
+                }
+
+                if (txns.length === 0) {
+                    body.innerHTML = '<p style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px;">No transactions recorded yet. Trigger some DB operations and try again.</p>';
+                    return;
+                }
+
+                var showServer = txns.length > 0 && txns[0].server_name != null;
+                var colCount = showServer ? 11 : 10;
+
+                var txRows = txns.map(function(tx, i) {
+                    var durClass = execClass(tx.duration_ms);
+                    var outcomeClass = tx.outcome === 'COMMITTED' ? 'healthy' :
+                                       tx.outcome === 'ABORTED' ? 'critical' :
+                                       tx.outcome === 'IN_FLIGHT' ? 'warning' : 'info';
+                    var txIdShort = tx.tx_id.length > 30 ? '...' + tx.tx_id.slice(-25) : tx.tx_id;
+                    var hasQueries = tx.query_count > 0;
+                    var rowId = 'txRow' + i;
+                    var rowAlert = tx.duration_ms >= 1000 ? ' class="row-alert"' : '';
+
+                    var r = '<tr' + rowAlert + '>';
+                    if (showServer) r += '<td class="mono" style="font-size:11px;"><span class="badge badge-info">' + escapeHtml(tx.server_name || '') + '</span></td>';
+                    r += '<td class="mono" style="color: var(--text-muted); font-size: 11px;">' + (i + 1) + '</td>';
+                    r += '<td class="mono" style="font-size: 10px;" title="' + escapeHtml(tx.tx_id) + '">' + escapeHtml(txIdShort) + '</td>';
+                    var txSafeName = escapeHtml(tx.thread).replace(/'/g, "\\'");
+                    r += '<td class="mono" style="font-size: 11px;">' + (tx.thread ? '<span class="thread-link" onclick="showThreadStack(\'' + txSafeName + '\')">' + escapeHtml(tx.thread) + '</span>' : '-') + '</td>';
+                    // Endpoint (API) that drove this transaction — correlated from access.log by thread + time window.
+                    if (tx.api_endpoint) {
+                        var apiSt = tx.api_status;
+                        var stCls = apiSt == null ? 'info' : (apiSt >= 500 ? 'critical' : apiSt >= 400 ? 'warning' : 'healthy');
+                        r += '<td style="font-size: 11px; white-space: nowrap;" title="' + escapeHtml(tx.api_endpoint) + (apiSt != null ? ' &rarr; ' + apiSt : '') + '">'
+                            + '<span class="mono">' + escapeHtml(tx.api_method || '') + '</span> '
+                            + '<span class="mono" style="color: var(--accent);">' + escapeHtml(tx.api_uri || '') + '</span>'
+                            + (apiSt != null ? ' <span class="badge badge-' + stCls + '">' + apiSt + '</span>' : '')
+                            + '</td>';
+                    } else {
+                        r += '<td style="font-size: 11px; color: var(--text-muted);" title="No matching HTTP request found in access.log (system/recovery transaction, or access logging without thread field).">-</td>';
+                    }
+                    r += '<td style="font-size: 11px; white-space: nowrap;">' + escapeHtml(tx.begin_time || '-') + '</td>';
+                    r += '<td style="font-size: 11px; white-space: nowrap;">' + escapeHtml(tx.end_time || '-') + '</td>';
+                    r += '<td class="mono ' + durClass + '">' + fmtExecTime(tx.duration_ms) + '</td>';
+                    r += '<td><span class="badge badge-' + outcomeClass + '">' + escapeHtml(tx.outcome || '-') + '</span></td>';
+                    r += '<td class="mono">' + tx.query_count + '</td>';
+                    r += '<td>';
+                    if (hasQueries) {
+                        r += '<button class="btn" style="padding: 2px 8px; font-size: 11px;" onclick="toggleTxQueries(\'' + rowId + '\')">Show SQL</button>';
+                    } else {
+                        r += '<span style="font-size: 11px; color: var(--text-muted);">-</span>';
+                    }
+                    r += '</td></tr>';
+
+                    if (hasQueries) {
+                        r += '<tr id="' + rowId + '" style="display: none;"><td colspan="' + colCount + '" style="padding: 8px 16px; background: rgba(88,166,255,0.03);">';
+                        r += '<div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">SQL Queries in this transaction:</div>';
+                        r += '<table class="data-table" style="margin: 0;"><thead><tr><th>Datasource</th><th style="min-width: 250px;">SQL</th><th>Params</th><th>Exec Time</th><th>Type</th></tr></thead><tbody>';
+                        tx.queries.forEach(function(q) {
+                            var qec = execClass(q.exec_time_ms);
+                            r += '<tr>';
+                            r += '<td><span class="badge badge-info">' + escapeHtml(q.datasource) + '</span></td>';
+                            r += '<td class="sql-cell" title="' + escapeHtml(q.sql || '') + '">' + escapeHtml(q.sql) + '</td>';
+                            r += '<td style="font-size: 10px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + escapeHtml(q.params || '-') + '</td>';
+                            r += '<td class="mono ' + qec + '">' + fmtExecTime(q.exec_time_ms) + '</td>';
+                            r += '<td class="mono" style="font-size: 11px;">' + escapeHtml(q.execute_type || '-') + '</td>';
+                            r += '</tr>';
+                        });
+                        r += '</tbody></table></td></tr>';
+                    }
+                    return r;
+                });
+
+                var html = '<div style="overflow-x: auto;"><table class="data-table"><thead><tr>';
+                if (showServer) html += '<th>Server</th>';
+                html += '<th>#</th><th>TX ID</th><th>Thread</th><th>Endpoint (API)</th><th>Begin</th><th>End</th><th>Duration</th><th>Outcome</th><th>Queries</th><th>Details</th>';
+                html += '</tr></thead><tbody id="txHistoryTbody">';
+                html += '</tbody></table></div>';
+                body.innerHTML = html;
+                paginateTable('txHistoryTbody', txRows);
+            } catch (err) {
+                body.innerHTML = '<p style="color: var(--critical);">Failed to load transaction history: ' + escapeHtml(err.message) + '</p>';
+            }
+        }
+
+        function toggleTxQueries(rowId) {
+            var row = document.getElementById(rowId);
+            if (row) {
+                row.style.display = row.style.display === 'none' ? '' : 'none';
+            }
+        }
+
+        // --- Tab Switching ---
+        function switchPoolTab(tabId, btn) {
+            document.querySelectorAll('#poolSessionsCard .tab-btn').forEach(function(b) { b.classList.remove('active'); });
+            document.querySelectorAll('#poolSessionsCard .tab-panel').forEach(function(p) { p.classList.remove('active'); });
+            btn.classList.add('active');
+            var panelMap = { active: 'tabPoolActive', history: 'tabPoolHistory' };
+            document.getElementById(panelMap[tabId]).classList.add('active');
+        }
+
+        // --- Format helpers ---
+        function fmtExecTime(ms) {
+            if (ms >= 1000) return (ms / 1000).toFixed(2) + 's';
+            return ms.toFixed(1) + 'ms';
+        }
+        function execClass(ms) {
+            if (ms >= 1000) return 'exec-slow';
+            if (ms >= 100) return 'exec-warn';
+            return 'exec-fast';
+        }
+
+        // --- Active Pool Sessions (JBoss Management API + Spy) ---
+        async function loadPoolSessions() {
+            var body = document.getElementById('poolSessionsBody');
+            body.innerHTML = '<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line medium"></div>';
+
+            try {
+                var data = await fetchData('/pool-sessions');
+                if (data.error) {
+                    body.innerHTML = '<p style="color: var(--critical);">Error: ' + escapeHtml(data.error) + '</p>';
+                    return;
+                }
+
+                var sessions = data.sessions || [];
+                var spyConfigured = data.spy_configured;
+                var totalInUse = data.total_in_use || 0;
+                var totalInflight = data.total_inflight || 0;
+
+                // Update tab badge
+                var tabBtns = document.querySelectorAll('#poolSessionsCard .tab-btn');
+                var totalActive = sessions.reduce(function(s, ds) { return s + ds.active; }, 0);
+                tabBtns[0].innerHTML = 'Active Pool Sessions <span class="tab-count">' + totalActive + '</span>';
+
+                if (sessions.length === 0) {
+                    body.innerHTML = '<p style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px;">No datasources configured.</p>';
+                    return;
+                }
+
+                var html = '';
+
+                // Summary bar
+                html += '<div style="display: flex; gap: 24px; margin-bottom: 16px; flex-wrap: wrap;">'
+                    + '<span style="font-size: 12px; color: var(--text-secondary);">Total Active: <strong style="color: var(--text-primary);">' + totalActive + '</strong></span>'
+                    + '<span style="font-size: 12px; color: var(--text-secondary);">In Use: <strong style="color: var(--text-primary);">' + totalInUse + '</strong></span>'
+                    + '<span style="font-size: 12px; color: var(--text-secondary);">In-flight Queries: <strong style="color: ' + (totalInflight > 0 ? 'var(--warning)' : 'var(--text-primary)') + ';">' + totalInflight + '</strong></span>'
+                    + '<span style="font-size: 12px; color: var(--text-secondary);">Spy Log: <span style="color: ' + (spyConfigured ? 'var(--healthy)' : 'var(--critical)') + ';">' + (spyConfigured ? 'Active' : 'Not Configured') + '</span></span>'
+                    + '</div>';
+
+                // Per-datasource cards
+                sessions.forEach(function(ds) {
+                    var utilColor = ds.pool_utilization > 80 ? 'var(--critical)' :
+                                    ds.pool_utilization > 50 ? 'var(--warning)' : 'var(--healthy)';
+
+                    html += '<div class="pool-ds-card">';
+                    html += '<div class="pool-ds-header">';
+                    html += '<div>';
+                    html += '<strong style="font-size: 14px;">' + escapeHtml(ds.datasource) + '</strong>';
+                    if (ds.server_name) html += '<span class="badge badge-info" style="margin-left: 8px; font-size: 10px;">' + escapeHtml(ds.server_name) + '</span>';
+                    html += '<span style="font-size: 11px; color: var(--text-muted); margin-left: 8px;">' + escapeHtml(ds.jndi) + '</span>';
+                    html += '</div>';
+                    html += '<div class="pool-mini-stats">';
+                    html += '<span class="pool-mini-stat">Active: <strong>' + ds.active + '</strong></span>';
+                    html += '<span class="pool-mini-stat">In Use: <strong>' + ds.in_use + '</strong></span>';
+                    html += '<span class="pool-mini-stat">Idle: <strong>' + ds.idle + '</strong></span>';
+                    html += '<span class="pool-mini-stat">Max: <strong>' + ds.max_size + '</strong></span>';
+                    html += '<span class="pool-mini-stat">Util: <strong style="color: ' + utilColor + ';">' + ds.pool_utilization + '%</strong></span>';
+                    if (ds.wait_count > 0) html += '<span class="pool-mini-stat">Waits: <strong style="color: var(--warning);">' + ds.wait_count + '</strong></span>';
+                    if (ds.timed_out > 0) html += '<span class="pool-mini-stat">Timed Out: <strong style="color: var(--critical);">' + ds.timed_out + '</strong></span>';
+                    html += '</div>';
+                    html += '</div>';
+
+                    html += '<div class="pool-ds-body">';
+                    html += '<div style="display: flex; gap: 16px; margin-bottom: 8px; font-size: 12px; color: var(--text-secondary);">';
+                    html += '<span>Avg Get Time: <strong class="mono">' + fmtExecTime(ds.avg_get_time_ms) + '</strong></span>';
+                    html += '<span>Avg Blocking: <strong class="mono">' + fmtExecTime(ds.avg_blocking_time_ms) + '</strong></span>';
+                    html += '<span>Driver: <strong>' + escapeHtml(ds.driver) + '</strong></span>';
+                    html += '</div>';
+
+                    // In-flight queries
+                    var inflight = ds.inflight_queries || [];
+                    if (inflight.length > 0) {
+                        html += '<div style="margin-top: 8px;">';
+                        html += '<div style="font-size: 11px; font-weight: 600; color: var(--warning); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">In-Flight Queries (' + inflight.length + ')</div>';
+                        html += '<div style="overflow-x: auto;"><table class="data-table"><thead><tr>';
+                        html += '<th>Thread</th><th>Status</th><th style="min-width: 250px;">SQL Query</th><th>Params</th><th>Exec Time</th><th>Session Time</th><th>Type</th>';
+                        html += '</tr></thead><tbody>';
+                        inflight.forEach(function(q) {
+                            var ec = execClass(q.exec_time_ms);
+                            var sqlTitle = (q.sql || '').replace(/"/g, '&quot;');
+                            var qSafeName = escapeHtml(q.thread).replace(/'/g, "\\'");
+                            html += '<tr>';
+                            html += '<td class="mono" style="font-size: 11px;">' + (q.thread ? '<span class="thread-link" onclick="showThreadStack(\'' + qSafeName + '\')">' + escapeHtml(q.thread) + '</span>' : '-') + '</td>';
+                            html += '<td><span class="badge badge-warning">Executing</span></td>';
+                            html += '<td class="sql-cell" title="' + sqlTitle + '">' + escapeHtml(q.sql) + '</td>';
+                            html += '<td style="font-size: 10px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + escapeHtml(q.params || '') + '">' + escapeHtml(q.params || '-') + '</td>';
+                            html += '<td class="mono ' + ec + '">' + fmtExecTime(q.exec_time_ms) + '</td>';
+                            html += '<td class="mono">' + fmtExecTime(q.session_time_ms) + '</td>';
+                            html += '<td class="mono" style="font-size: 11px;">' + escapeHtml(q.execute_type || '-') + '</td>';
+                            html += '</tr>';
+                        });
+                        html += '</tbody></table></div></div>';
+                    } else {
+                        html += '<div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">No in-flight queries at this moment.</div>';
+                    }
+
+                    html += '</div></div>';
+                });
+
+                body.innerHTML = html;
+            } catch (err) {
+                body.innerHTML = '<p style="color: var(--critical);">Failed to load pool sessions: ' + escapeHtml(err.message) + '</p>';
+            }
+        }
+
+        // --- Session History (JDBC Spy Log — JBoss only) ---
+        async function loadSpySessionHistory() {
+            var body = document.getElementById('spyHistoryBody');
+            var dsFilter = document.getElementById('historyDsFilter').value;
+            body.innerHTML = '<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line medium"></div><div class="skeleton skeleton-line short"></div>';
+
+            try {
+                var url = '/spy-session-history';
+                if (dsFilter) url += '?datasource=' + encodeURIComponent(dsFilter);
+                var data = await fetchData(url);
+
+                if (data.status === 'not_configured') {
+                    body.innerHTML = '<div style="text-align: center; padding: 32px; color: var(--text-muted);">'
+                        + '<div style="font-size: 40px; margin-bottom: 12px; opacity: 0.3;">&#9888;</div>'
+                        + '<p style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">JDBC Spy Not Configured</p>'
+                        + '<p style="font-size: 12px;">Enable spy=true on datasources and add jboss.jdbc.spy DEBUG logger in JBoss.</p></div>';
+                    return;
+                }
+
+                var sessions = data.sessions || [];
+                var dsSeen = data.datasources_seen || [];
+
+                // Populate datasource filter
+                var select = document.getElementById('historyDsFilter');
+                var currentVal = select.value;
+                select.innerHTML = '<option value="">All Datasources</option>';
+                dsSeen.forEach(function(ds) {
+                    var opt = document.createElement('option');
+                    opt.value = ds;
+                    opt.textContent = ds;
+                    if (ds === currentVal) opt.selected = true;
+                    select.appendChild(opt);
+                });
+
+                // Update tab badge
+                var tabBtns = document.querySelectorAll('#poolSessionsCard .tab-btn');
+                tabBtns[1].innerHTML = 'Session History <span class="tab-count">' + data.total + '</span>';
+
+                if (sessions.length === 0) {
+                    body.innerHTML = '<p style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px;">No session history recorded yet. Spy log may be empty.</p>';
+                    return;
+                }
+
+                var html = '<div style="margin-bottom: 12px; font-size: 12px; color: var(--text-secondary);">'
+                    + sessions.length + ' quer' + (sessions.length === 1 ? 'y' : 'ies') + ' — sorted by most recent'
+                    + '</div>';
+
+                var showSpyServer = sessions.some(function(s) { return s.server_name != null; });
+                html += '<div style="overflow-x: auto;"><table class="data-table"><thead><tr>';
+                if (showSpyServer) html += '<th>Server</th>';
+                html += '<th>#</th><th>Timestamp</th><th>Datasource</th><th>Thread</th><th style="min-width: 300px;">SQL Query</th><th>Params</th><th>Exec Time</th><th>Type</th>';
+                html += '</tr></thead><tbody>';
+
+                sessions.forEach(function(s, i) {
+                    var ec = execClass(s.exec_time_ms);
+                    var sqlTitle = (s.sql || '').replace(/"/g, '&quot;');
+                    var paramsTitle = (s.params || '').replace(/"/g, '&quot;');
+                    var sSafeName = escapeHtml(s.thread).replace(/'/g, "\\'");
+                    html += '<tr>';
+                    if (showSpyServer) html += '<td><span class="badge badge-info">' + escapeHtml(s.server_name || '') + '</span></td>';
+                    html += '<td class="mono" style="color: var(--text-muted); font-size: 11px;">' + (i + 1) + '</td>';
+                    html += '<td style="font-size: 11px; white-space: nowrap;">' + escapeHtml(s.timestamp) + '</td>';
+                    html += '<td><span class="badge badge-info">' + escapeHtml(s.datasource) + '</span></td>';
+                    html += '<td class="mono" style="font-size: 11px;">' + (s.thread ? '<span class="thread-link" onclick="showThreadStack(\'' + sSafeName + '\')">' + escapeHtml(s.thread) + '</span>' : '-') + '</td>';
+                    html += '<td class="sql-cell" title="' + sqlTitle + '">' + escapeHtml(s.sql) + '</td>';
+                    html += '<td style="font-size: 10px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + paramsTitle + '">' + escapeHtml(s.params || '-') + '</td>';
+                    html += '<td class="mono ' + ec + '">' + fmtExecTime(s.exec_time_ms) + '</td>';
+                    html += '<td class="mono" style="font-size: 11px;">' + escapeHtml(s.execute_type || '-') + '</td>';
+                    html += '</tr>';
+                });
+
+                html += '</tbody></table></div>';
+                body.innerHTML = html;
+            } catch (err) {
+                body.innerHTML = '<p style="color: var(--critical);">Failed to load session history: ' + escapeHtml(err.message) + '</p>';
+            }
+        }
+
+        // --- Fetch live data and render ---
+        async function loadTransactionData() {
+            try {
+                const response = await fetchData('/transactions');
+                if (response && response.transactions) {
+                    txData = response.transactions;
+                }
+            } catch (err) {
+                console.error('Failed to fetch transaction data:', err);
+                showToast('Failed to load transaction data: ' + err.message, 'error');
+            }
+        }
+
+        // --- Initialize ---
+        async function refreshPage() {
+            await loadTransactionData();
+            populateStats();
+            renderDistributionChart();
+            renderRollbackChart();
+            populateDetails();
+        }
+
+        // --- Thread Stack Trace Modal ---
+        function highlightFrame(frame) {
+            if (/\.(com\.|org\.|net\.)/.test(frame) && !/java\.|javax\.|sun\.|jdk\./.test(frame) && !/jboss|wildfly|undertow|xnio|arjuna/.test(frame)) {
+                return '<span class="stack-frame-app">' + escapeHtml(frame) + '</span>';
+            }
+            if (/jboss|wildfly|undertow|xnio|arjuna/.test(frame)) {
+                return '<span class="stack-frame-jboss">' + escapeHtml(frame) + '</span>';
+            }
+            return escapeHtml(frame);
+        }
+
+        function showThreadStack(threadName) {
+            var modal = document.getElementById('threadModal');
+            var body = document.getElementById('threadModalBody');
+            document.getElementById('threadModalTitle').textContent = threadName;
+            body.innerHTML = '<p style="color: var(--text-muted);">Loading thread details...</p>';
+            modal.classList.add('active');
+
+            fetchData('/thread-details').then(function(data) {
+                var threads = data.threads || [];
+                var thread = null;
+                for (var i = 0; i < threads.length; i++) {
+                    if (threads[i].thread_name === threadName) {
+                        thread = threads[i];
+                        break;
+                    }
+                }
+                if (!thread) {
+                    body.innerHTML = '<p style="color: var(--text-muted);">Thread "' + escapeHtml(threadName) + '" not found in current thread dump. It may have completed.</p>';
+                    return;
+                }
+
+                var html = '<div class="thread-meta">';
+                html += '<div class="thread-meta-item">State:<strong>' + escapeHtml(thread.state || '-') + '</strong></div>';
+                if (thread.thread_id) html += '<div class="thread-meta-item">ID:<strong>' + thread.thread_id + '</strong></div>';
+                if (thread.category) html += '<div class="thread-meta-item">Category:<strong>' + escapeHtml(thread.category) + '</strong></div>';
+                if (thread.task) html += '<div class="thread-meta-item">Task:<strong>' + escapeHtml(thread.task) + '</strong></div>';
+                if (thread.blocked_count) html += '<div class="thread-meta-item">Blocked:<strong>' + thread.blocked_count + '</strong></div>';
+                if (thread.waited_count) html += '<div class="thread-meta-item">Waited:<strong>' + thread.waited_count + '</strong></div>';
+                html += '</div>';
+
+                if (thread.lock_info) {
+                    html += '<div style="font-size: 11px; color: var(--warning); margin-bottom: 8px;">Lock: ' + escapeHtml(thread.lock_info) + '</div>';
+                }
+                if (thread.lock_owner_name) {
+                    html += '<div style="font-size: 11px; color: var(--critical); margin-bottom: 8px;">Lock Owner: ' + escapeHtml(thread.lock_owner_name) + ' (id: ' + (thread.lock_owner_id || '-') + ')</div>';
+                }
+
+                if (thread.stack_trace && thread.stack_trace.length > 0) {
+                    var lines = Array.isArray(thread.stack_trace) ? thread.stack_trace : thread.stack_trace.split('\n');
+                    html += '<div class="stack-trace-box">' + lines.map(highlightFrame).join('\n') + '</div>';
+                } else {
+                    html += '<p style="color: var(--text-muted); font-size: 12px;">No stack trace available.</p>';
+                }
+
+                body.innerHTML = html;
+            }).catch(function(err) {
+                body.innerHTML = '<p style="color: var(--critical);">Failed to load thread details: ' + escapeHtml(err.message) + '</p>';
+            });
+        }
+
+        function closeThreadModal() {
+            document.getElementById('threadModal').classList.remove('active');
+        }
+
+        setupAutoRefresh(refreshPage);
+        refreshPage();
+        loadTxHistory();
+        loadPoolSessions();
+    </script>
+</body>
+</html>

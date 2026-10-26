@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JBoss Monitor - Dashboard</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .health-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .health-badge-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: rgba(0, 212, 255, 0.03);
+            border: 1px solid rgba(0, 212, 255, 0.1);
+            border-radius: 4px;
+            min-width: 160px;
+            backdrop-filter: blur(6px);
+            transition: all 0.25s ease;
+        }
+        .health-badge-item:hover {
+            border-color: rgba(0, 212, 255, 0.25);
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.06);
+            background: rgba(0, 212, 255, 0.05);
+        }
+        .health-badge-item .component-name {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .quick-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .quick-action-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 22px;
+            background: rgba(8, 18, 35, 0.75);
+            border: 1px solid rgba(0, 212, 255, 0.1);
+            border-radius: var(--radius);
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.25s ease;
+            cursor: pointer;
+            backdrop-filter: blur(6px);
+        }
+        .quick-action-btn:hover {
+            border-color: rgba(0, 212, 255, 0.3);
+            background: rgba(0, 212, 255, 0.04);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.08);
+            transform: translateY(-1px);
+        }
+        .quick-action-btn .qa-icon {
+            font-size: 18px;
+            width: 24px;
+            text-align: center;
+            transition: text-shadow 0.25s;
+        }
+        .quick-action-btn:hover .qa-icon {
+            text-shadow: 0 0 12px rgba(0, 212, 255, 0.5);
+        }
+        .quick-action-btn .qa-desc {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 2px;
+            font-family: var(--font-mono);
+            letter-spacing: 0.5px;
+        }
+        .stat-card-link {
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+        .ai-panel-actions {
+            margin-top: 16px;
+            display: flex;
+            gap: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+    <div class="main-content">
+        <div id="header-container"></div>
+        <div class="content">
+
+            <!-- AI Analysis Panel -->
+            <div class="ai-panel">
+                <div class="ai-header">&#9733; AI Health Analysis</div>
+                <div class="ai-content" id="aiHealthContentTop">Click the button below to run AI health analysis.</div>
+                <div style="margin-top: 12px;">
+                    <button class="btn btn-primary" onclick="runHealthAnalysis()">&#9733; Analyze Health</button>
+                </div>
+            </div>
+
+            <!-- Stat Cards Row -->
+            <div class="stats-row" id="statsRow">
+                <a href="server-status.html" class="stat-card-link">
+                    <div class="stat-card" id="statServerState">
+                        <div class="stat-label">Server State</div>
+                        <div class="stat-value" id="valServerState">--</div>
+                        <div class="stat-sub">JBoss EAP runtime status</div>
+                    </div>
+                </a>
+                <a href="server-status.html" class="stat-card-link">
+                    <div class="stat-card" id="statUptime">
+                        <div class="stat-label">Uptime</div>
+                        <div class="stat-value" id="valUptime">--</div>
+                        <div class="stat-sub">Since last restart</div>
+                    </div>
+                </a>
+                <a href="memory.html" class="stat-card-link">
+                    <div class="stat-card" id="statHeap">
+                        <div class="stat-label">Heap Used</div>
+                        <div class="stat-value" id="valHeap">--<span class="stat-unit">%</span></div>
+                        <div id="heapProgressBar"></div>
+                        <div class="stat-sub">JVM heap memory utilization</div>
+                    </div>
+                </a>
+                <a href="threads.html" class="stat-card-link">
+                    <div class="stat-card" id="statThreads">
+                        <div class="stat-label">Thread Count</div>
+                        <div class="stat-value" id="valThreads">--</div>
+                        <div class="stat-sub">Active JVM threads</div>
+                    </div>
+                </a>
+                <a href="datasources.html" class="stat-card-link">
+                    <div class="stat-card" id="statDBConn">
+                        <div class="stat-label">Active DB Connections</div>
+                        <div class="stat-value" id="valDBConn">--</div>
+                        <div class="stat-sub">Current pool utilization</div>
+                    </div>
+                </a>
+                <a href="transactions.html" class="stat-card-link">
+                    <div class="stat-card" id="statTxAbort">
+                        <div class="stat-label">Transaction Abort Rate</div>
+                        <div class="stat-value" id="valTxAbort">--<span class="stat-unit">%</span></div>
+                        <div class="stat-sub">Aborted / total transactions</div>
+                    </div>
+                </a>
+            </div>
+
+            <div class="grid-2">
+                <div>
+                    <!-- Health Overview -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Health Overview</h3>
+                            <span class="badge badge-unknown" id="overallHealthBadge">CHECKING</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="health-badges" id="healthBadges">
+                                <div class="health-badge-item">
+                                    <span class="component-name">Memory</span>
+                                    <span class="badge badge-unknown" id="healthMemory">--</span>
+                                </div>
+                                <div class="health-badge-item">
+                                    <span class="component-name">Threads</span>
+                                    <span class="badge badge-unknown" id="healthThreads">--</span>
+                                </div>
+                                <div class="health-badge-item">
+                                    <span class="component-name">Datasources</span>
+                                    <span class="badge badge-unknown" id="healthDatasources">--</span>
+                                </div>
+                                <div class="health-badge-item">
+                                    <span class="component-name">Transactions</span>
+                                    <span class="badge badge-unknown" id="healthTransactions">--</span>
+                                </div>
+                                <div class="health-badge-item">
+                                    <span class="component-name">Web</span>
+                                    <span class="badge badge-unknown" id="healthWeb">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Quick Actions</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="quick-actions">
+                                <a href="memory.html" class="quick-action-btn">
+                                    <span class="qa-icon">&#9618;</span>
+                                    <div>
+                                        Memory &amp; GC
+                                        <div class="qa-desc">Heap, GC pauses, pools</div>
+                                    </div>
+                                </a>
+                                <a href="threads.html" class="quick-action-btn">
+                                    <span class="qa-icon">&#9776;</span>
+                                    <div>
+                                        Threads
+                                        <div class="qa-desc">States, deadlocks, dump</div>
+                                    </div>
+                                </a>
+                                <a href="datasources.html" class="quick-action-btn">
+                                    <span class="qa-icon">&#9707;</span>
+                                    <div>
+                                        Datasources
+                                        <div class="qa-desc">Pools, connections, JDBC</div>
+                                    </div>
+                                </a>
+                                <a href="transactions.html" class="quick-action-btn">
+                                    <span class="qa-icon">&#8644;</span>
+                                    <div>
+                                        Transactions
+                                        <div class="qa-desc">JTA commits, aborts, rate</div>
+                                    </div>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <!-- System Info Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>System Information</h3>
+                        </div>
+                        <div class="card-body" id="systemInfoBody">
+                            <div class="kv-list">
+                                <span class="kv-key">Server</span>
+                                <span class="kv-value" id="sysServer">--</span>
+                                <span class="kv-key">Profile</span>
+                                <span class="kv-value" id="sysProfile">--</span>
+                                <span class="kv-key">JVM</span>
+                                <span class="kv-value" id="sysJVM">--</span>
+                                <span class="kv-key">OS</span>
+                                <span class="kv-value" id="sysOS">--</span>
+                                <span class="kv-key">Processors</span>
+                                <span class="kv-value" id="sysProcessors">--</span>
+                                <span class="kv-key">Monitoring</span>
+                                <span class="kv-value">Quarkus + MCP Agent</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+        // Render layout components
+        document.getElementById('sidebar-container').innerHTML = renderSidebar();
+        document.getElementById('header-container').innerHTML = renderPageHeader(
+            'Dashboard',
+            'JBoss EAP server overview and health monitoring'
+        );
+        setActiveNav();
+
+        // --- Load dashboard data from MCP REST API ---
+        async function loadDashboardData() {
+            try {
+                const data = await fetchData('/health');
+                if (data.error) {
+                    showToast('Health API error: ' + data.error, 'error');
+                    return;
+                }
+
+                const c = data.components || {};
+
+                // --- Stat Cards ---
+
+                // Server State
+                const serverState = (c.server && c.server.state) || 'unknown';
+                const elState = document.getElementById('valServerState');
+                elState.textContent = serverState.charAt(0).toUpperCase() + serverState.slice(1);
+                elState.className = 'stat-value ' + (serverState === 'running' ? 'healthy' : 'warning');
+
+                // Uptime
+                const uptime = (c.server && c.server.uptime) || '--';
+                document.getElementById('valUptime').textContent = uptime;
+
+                // Heap Used %
+                const heapPct = (c.memory && c.memory.heap_used_percent) || 0;
+                const elHeap = document.getElementById('valHeap');
+                const heapCls = heapPct >= 85 ? 'critical' : heapPct >= 60 ? 'warning' : 'healthy';
+                elHeap.innerHTML = heapPct.toFixed(1) + '<span class="stat-unit">%</span>';
+                elHeap.className = 'stat-value ' + heapCls;
+                document.getElementById('heapProgressBar').innerHTML = createProgressBar(heapPct);
+
+                // Thread Count
+                const threadCount = (c.threads && c.threads.thread_count) || 0;
+                document.getElementById('valThreads').textContent = formatNumber(threadCount);
+
+                // Active DB Connections (sum across all datasources)
+                let activeConns = 0;
+                if (c.datasources && c.datasources.sources) {
+                    c.datasources.sources.forEach(function(src) {
+                        activeConns += (src.active || 0);
+                    });
+                }
+                document.getElementById('valDBConn').textContent = formatNumber(activeConns);
+
+                // Transaction Abort Rate
+                const abortRate = (c.transactions && c.transactions.abort_rate_percent) || 0;
+                const elTx = document.getElementById('valTxAbort');
+                const txCls = abortRate >= 10 ? 'critical' : abortRate >= 5 ? 'warning' : 'healthy';
+                elTx.innerHTML = abortRate.toFixed(1) + '<span class="stat-unit">%</span>';
+                elTx.className = 'stat-value ' + txCls;
+
+                // --- Health Overview Badges ---
+                setHealthBadge('healthMemory', c.memory);
+                setHealthBadge('healthThreads', c.threads);
+                setHealthBadge('healthDatasources', c.datasources);
+                setHealthBadge('healthTransactions', c.transactions);
+
+                // Web component: fetch separately since /health does not include it
+                loadWebHealth();
+
+                // Overall health badge
+                const overall = data.overall_health || 'UNKNOWN';
+                const overallBadge = document.getElementById('overallHealthBadge');
+                overallBadge.textContent = overall;
+                overallBadge.className = 'badge badge-' + healthClass(overall);
+
+                // Sidebar status dot
+                updateSidebarStatus(overall, serverState);
+
+            } catch (err) {
+                showToast('Failed to load dashboard data: ' + err.message, 'error');
+            }
+        }
+
+        function setHealthBadge(elementId, component) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            const health = (component && component.health) || 'UNKNOWN';
+            el.textContent = health;
+            el.className = 'badge badge-' + (healthClass(health) || 'unknown');
+        }
+
+        async function loadWebHealth() {
+            try {
+                const data = await fetchData('/web');
+                const el = document.getElementById('healthWeb');
+                if (data.error) {
+                    el.textContent = 'UNKNOWN';
+                    el.className = 'badge badge-unknown';
+                } else {
+                    // Web endpoint returns stats; if it responds successfully the subsystem is healthy
+                    el.textContent = 'HEALTHY';
+                    el.className = 'badge badge-healthy';
+                }
+            } catch (err) {
+                const el = document.getElementById('healthWeb');
+                el.textContent = 'UNKNOWN';
+                el.className = 'badge badge-unknown';
+            }
+        }
+
+        function updateSidebarStatus(overallHealth, serverState) {
+            const dot = document.getElementById('globalStatusDot');
+            const label = document.getElementById('globalStatusText');
+            if (!dot || !label) return;
+
+            const h = (overallHealth || '').toUpperCase();
+            if (h === 'CRITICAL') {
+                dot.className = 'status-dot critical';
+                label.textContent = 'Critical Issues';
+            } else if (h === 'WARNING') {
+                dot.className = 'status-dot warning';
+                label.textContent = 'Warnings Present';
+            } else if (h === 'HEALTHY') {
+                dot.className = 'status-dot';
+                label.textContent = serverState === 'running' ? 'Server Running' : 'Server ' + serverState;
+            } else {
+                dot.className = 'status-dot warning';
+                label.textContent = 'Status Unknown';
+            }
+        }
+
+        // --- System Information panel ---
+        async function loadSystemInfo() {
+            try {
+                const [serverData, sysData] = await Promise.all([
+                    fetchData('/server-status'),
+                    fetchData('/system')
+                ]);
+
+                const srv = (serverData && serverData.server) || {};
+                const sys = (sysData && sysData.system && sysData.system.os) || {};
+
+                document.getElementById('sysServer').textContent =
+                    (srv.product_name || 'JBoss EAP') + ' ' + (srv.product_version || '');
+
+                document.getElementById('sysProfile').textContent =
+                    (srv.running_mode || '--') + ' / ' + (srv.launch_type || '--');
+
+                document.getElementById('sysJVM').textContent =
+                    (srv.vm_name || '--') + ' ' + (srv.vm_version || '');
+
+                const osName = sys.name || '--';
+                const osVer = sys.version || '';
+                const osArch = sys.arch || '';
+                document.getElementById('sysOS').textContent =
+                    osName + (osVer ? ' ' + osVer : '') + (osArch ? ' (' + osArch + ')' : '');
+
+                document.getElementById('sysProcessors').textContent =
+                    sys.available_processors != null ? sys.available_processors : '--';
+
+            } catch (err) {
+                // Non-critical; leave placeholders
+            }
+        }
+
+        // --- AI Health Analysis (uses Quarkus backend, returns plain text) ---
+        async function runHealthAnalysis() {
+            const el = document.getElementById('aiHealthContentTop');
+            el.className = 'ai-content loading';
+            el.textContent = 'Analyzing server health...';
+
+            try {
+                const text = await fetchAPI('/jboss/health');
+                el.className = 'ai-content';
+                el.textContent = text;
+            } catch (err) {
+                el.className = 'ai-content';
+                el.textContent = 'Failed to load health analysis: ' + err.message;
+                showToast('Health analysis failed: ' + err.message, 'error');
+            }
+        }
+
+        // --- Initialize ---
+        function refreshDashboard() {
+            loadDashboardData();
+            loadSystemInfo();
+        }
+
+        // Set up auto-refresh
+        setupAutoRefresh(refreshDashboard);
+
+        // Initial load
+        refreshDashboard();
+    </script>
+</body>
+</html>

@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JBoss Monitor - API Data</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .table-scroll { overflow-x: auto; }
+        .method-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            letter-spacing: 0.5px;
+            border: 1px solid transparent;
+        }
+        .method-badge.GET { background: rgba(0,255,136,0.06); color: #00ff88; border-color: rgba(0,255,136,0.15); }
+        .method-badge.POST { background: rgba(0,212,255,0.06); color: #00d4ff; border-color: rgba(0,212,255,0.15); }
+        .method-badge.PUT { background: rgba(255,170,0,0.06); color: #ffaa00; border-color: rgba(255,170,0,0.15); }
+        .method-badge.DELETE { background: rgba(255,34,68,0.06); color: #ff2244; border-color: rgba(255,34,68,0.15); }
+        .method-badge.PATCH { background: rgba(170,68,255,0.06); color: #aa44ff; border-color: rgba(170,68,255,0.15); }
+        .status-badge {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            border: 1px solid transparent;
+        }
+        .status-badge.s2xx { background: rgba(0,255,136,0.06); color: #00ff88; border-color: rgba(0,255,136,0.12); }
+        .status-badge.s3xx { background: rgba(0,212,255,0.06); color: #00d4ff; border-color: rgba(0,212,255,0.12); }
+        .status-badge.s4xx { background: rgba(255,170,0,0.06); color: #ffaa00; border-color: rgba(255,170,0,0.12); }
+        .status-badge.s5xx { background: rgba(255,34,68,0.06); color: #ff2244; border-color: rgba(255,34,68,0.12); }
+        .deploy-filter-bar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .deploy-chip {
+            padding: 4px 12px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            background: transparent;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            font-family: var(--font-mono);
+        }
+        .deploy-chip:hover {
+            border-color: rgba(0,212,255,0.3);
+            color: var(--accent);
+            box-shadow: 0 0 10px rgba(0,212,255,0.08);
+        }
+        .deploy-chip.active {
+            background: rgba(0,212,255,0.06);
+            border-color: rgba(0,212,255,0.3);
+            color: var(--accent);
+            box-shadow: 0 0 12px rgba(0,212,255,0.1);
+        }
+        .time-slow { color: var(--critical); font-weight: 600; text-shadow: 0 0 8px rgba(255,34,68,0.3); }
+        .time-medium { color: var(--warning); font-weight: 600; text-shadow: 0 0 8px rgba(255,170,0,0.3); }
+        .row-alert {
+            background: rgba(255,34,68,0.08);
+            border-left: 3px solid #ff2244;
+            animation: row-alert-pulse 2s ease-in-out infinite;
+        }
+        @keyframes row-alert-pulse {
+            0%, 100% { background: rgba(255,34,68,0.08); }
+            50% { background: rgba(255,34,68,0.14); }
+        }
+        .thread-link {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+            text-underline-offset: 2px;
+        }
+        .thread-link:hover { color: #40e0ff; text-decoration-style: solid; }
+        .req-status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            border: 1px solid transparent;
+        }
+        .req-status-badge.RUNNING { background: rgba(0,255,136,0.06); color: #00ff88; border-color: rgba(0,255,136,0.15); }
+        .req-status-badge.SLOW { background: rgba(255,170,0,0.06); color: #ffaa00; border-color: rgba(255,170,0,0.15); }
+        .req-status-badge.STUCK { background: rgba(255,34,68,0.06); color: #ff2244; border-color: rgba(255,34,68,0.15); }
+        .req-status-badge.BLOCKED { background: rgba(255,34,68,0.08); color: #ff4466; border-color: rgba(255,34,68,0.2); }
+        .duration-cell { font-variant-numeric: tabular-nums; }
+        .duration-ok { color: #00ff88; text-shadow: 0 0 6px rgba(0,255,136,0.2); }
+        .duration-slow { color: #ffaa00; font-weight: 600; text-shadow: 0 0 6px rgba(255,170,0,0.2); }
+        .duration-stuck { color: #ff2244; font-weight: 700; text-shadow: 0 0 8px rgba(255,34,68,0.3); }
+        .active-req-card {
+            border-left: 2px solid var(--accent);
+            box-shadow: inset 3px 0 15px rgba(0,212,255,0.03);
+        }
+        .pulse-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #00ff88;
+            margin-right: 6px;
+            box-shadow: 0 0 6px rgba(0,255,136,0.4);
+            animation: pulse-anim 1.5s ease-in-out infinite;
+        }
+        .pulse-dot.warn { background: #ffaa00; box-shadow: 0 0 6px rgba(255,170,0,0.4); }
+        .pulse-dot.critical { background: #ff2244; box-shadow: 0 0 6px rgba(255,34,68,0.4); }
+        @keyframes pulse-anim {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.7); }
+        }
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.75); z-index: 9999; justify-content: center; align-items: center;
+            backdrop-filter: blur(4px);
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-box {
+            background: rgba(8,18,35,0.95); border: 1px solid rgba(0,212,255,0.15);
+            border-radius: 8px; width: 700px; max-width: 90vw; max-height: 85vh;
+            display: flex; flex-direction: column;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.6), 0 0 30px rgba(0,212,255,0.05);
+            backdrop-filter: blur(12px);
+        }
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 14px 20px; border-bottom: 1px solid rgba(0,212,255,0.08);
+        }
+        .modal-header h3 { margin: 0; font-size: 14px; color: var(--text-primary); font-family: var(--font-mono); }
+        .modal-close {
+            background: none; border: none; color: var(--text-muted);
+            font-size: 22px; cursor: pointer; padding: 0 4px; line-height: 1;
+        }
+        .modal-close:hover { color: var(--accent); }
+        .modal-body { padding: 16px 20px; overflow-y: auto; }
+        .thread-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+        .thread-meta-item {
+            font-size: 11px; color: var(--text-secondary);
+            background: rgba(0,212,255,0.03); padding: 4px 10px; border-radius: 3px;
+            border: 1px solid rgba(0,212,255,0.08);
+            font-family: var(--font-mono);
+        }
+        .thread-meta-item strong { color: var(--accent); margin-left: 4px; }
+        .stack-trace-box {
+            background: rgba(0,0,0,0.4); border: 1px solid rgba(0,212,255,0.08);
+            border-radius: 4px; padding: 12px; font-family: var(--font-mono);
+            font-size: 11px; line-height: 1.6; max-height: 400px; overflow-y: auto;
+            white-space: pre-wrap; word-break: break-all;
+        }
+        .stack-frame-app { color: #00d4ff; }
+        .stack-frame-jboss { color: #ffaa00; }
+    </style>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+    <div class="main-content">
+        <div id="header-container"></div>
+        <div class="content">
+
+            <!-- AI Analysis Panel -->
+            <div class="ai-panel">
+                <div class="ai-header">&#9733; AI API Analysis</div>
+                <div class="ai-content" id="aiApiContentTop">Click the button below to run AI API performance analysis.</div>
+                <div style="margin-top: 12px;">
+                    <button class="btn btn-primary" onclick="loadAIAnalysis()">&#9733; Analyze API Data</button>
+                </div>
+            </div>
+
+            <!-- Stat Cards -->
+            <div class="stats-row">
+                <div class="stat-card">
+                    <div class="stat-label">Total API Hits</div>
+                    <div class="stat-value" id="valTotalHits">--</div>
+                    <div class="stat-sub">From access log</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Unique Endpoints</div>
+                    <div class="stat-value" id="valEndpoints">--</div>
+                    <div class="stat-sub">Distinct API paths</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Deployments</div>
+                    <div class="stat-value" id="valDeployments">--</div>
+                    <div class="stat-sub">Active applications</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Slowest Response</div>
+                    <div class="stat-value" id="valSlowest">--</div>
+                    <div class="stat-sub" id="valSlowestSub">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Error Rate</div>
+                    <div class="stat-value" id="valErrorRate">--</div>
+                    <div class="stat-sub">4xx + 5xx responses</div>
+                </div>
+            </div>
+
+            <!-- Deployment Summary -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Deployment Summary</h3>
+                    <span class="badge badge-info" id="deploySummaryCount">0 deployments</span>
+                </div>
+                <div class="card-body no-padding">
+                    <div class="table-scroll">
+                        <table class="data-table" id="deployTable">
+                            <thead>
+                                <tr>
+                                    <th>Deployment</th>
+                                    <th>Total Requests</th>
+                                    <th>Endpoints</th>
+                                    <th>Avg Response Time</th>
+                                    <th>Total Time</th>
+                                    <th>Errors</th>
+                                    <th>Error Rate</th>
+                                </tr>
+                            </thead>
+                            <tbody id="deployBody">
+                                <tr><td colspan="7" style="text-align:center; color: var(--text-muted); padding: 24px;">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active API Requests -->
+            <div class="card active-req-card">
+                <div class="card-header">
+                    <h3><span class="pulse-dot" id="activeReqPulse"></span> Active API Requests</h3>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <span class="badge badge-info" id="activeReqCount">0 requests</span>
+                        <span class="badge" id="activeReqHealth">--</span>
+                        <span class="badge" id="activeReqRefresh" title="Processing Time ticks live every 0.5s; the request list refreshes every 5s. No need to reload the page.">live · 0.5s</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Active Request Stats -->
+                    <div class="stats-row" style="margin-bottom: 16px;">
+                        <div class="stat-card" style="min-height: auto; padding: 12px 16px;">
+                            <div class="stat-label">Running</div>
+                            <div class="stat-value healthy" id="arRunning" style="font-size: 22px;">0</div>
+                        </div>
+                        <div class="stat-card" style="min-height: auto; padding: 12px 16px;">
+                            <div class="stat-label">Slow (&gt;15s)</div>
+                            <div class="stat-value" id="arSlow" style="font-size: 22px;">0</div>
+                        </div>
+                        <div class="stat-card" style="min-height: auto; padding: 12px 16px;">
+                            <div class="stat-label">Stuck (&gt;60s)</div>
+                            <div class="stat-value" id="arStuck" style="font-size: 22px;">0</div>
+                        </div>
+                        <div class="stat-card" style="min-height: auto; padding: 12px 16px;">
+                            <div class="stat-label">Blocked</div>
+                            <div class="stat-value" id="arBlocked" style="font-size: 22px;">0</div>
+                        </div>
+                    </div>
+                    <!-- Active Request Table -->
+                    <div class="table-scroll">
+                        <table class="data-table" id="activeReqTable">
+                            <thead id="activeReqHead">
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Processing Time</th>
+                                    <th>Method</th>
+                                    <th style="min-width: 250px;">URI / Handler</th>
+                                    <th>Deployment</th>
+                                    <th>Thread</th>
+                                    <th>Thread State</th>
+                                    <th>Client IP</th>
+                                    <th>Lock Info</th>
+                                </tr>
+                            </thead>
+                            <tbody id="activeReqBody">
+                                <tr><td colspan="9" style="text-align:center; color: var(--text-muted); padding: 24px;">Loading active requests...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Response Time Chart -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Endpoint Response Times</h3>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="responseTimeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Endpoint Stats Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>API Endpoints</h3>
+                    <div class="deploy-filter-bar">
+                        <span style="font-size: 12px; color: var(--text-muted);">Filter:</span>
+                        <button class="deploy-chip active" onclick="filterByDeploy('', this)">All</button>
+                        <span id="deployChips"></span>
+                        <span class="badge badge-info" id="endpointCount">0 endpoints</span>
+                    </div>
+                </div>
+                <div class="card-body no-padding">
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Method</th>
+                                    <th style="min-width: 300px;">URI</th>
+                                    <th>Deployment</th>
+                                    <th>Hits</th>
+                                    <th>Avg Time</th>
+                                    <th>Min Time</th>
+                                    <th>Max Time</th>
+                                    <th>Status Codes</th>
+                                    <th>First Hit</th>
+                                    <th>Last Hit</th>
+                                </tr>
+                            </thead>
+                            <tbody id="endpointBody">
+                                <tr><td colspan="10" style="text-align:center; color: var(--text-muted); padding: 24px;">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Request Log Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Recent API Requests</h3>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <label for="requestLogSort" style="font-size:12px; color: var(--text-muted);">Sort by</label>
+                        <select id="requestLogSort" onchange="setRequestLogSort(this.value)" style="font-size:12px; padding:4px 8px; background: var(--bg-input, #1e1e1e); color: var(--text, #eee); border:1px solid var(--border, #444); border-radius:4px;">
+                            <option value="date">Date &amp; Time (newest first)</option>
+                            <option value="response">Response Time (slowest first)</option>
+                        </select>
+                        <span class="badge badge-info" id="requestLogCount">0 requests</span>
+                    </div>
+                </div>
+                <div class="card-body no-padding">
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Method</th>
+                                    <th style="min-width: 300px;">URI</th>
+                                    <th>Deployment</th>
+                                    <th>Status</th>
+                                    <th>Response Time</th>
+                                    <th>Bytes</th>
+                                    <th>Thread</th>
+                                    <th>Client IP</th>
+                                </tr>
+                            </thead>
+                            <tbody id="requestLogBody">
+                                <tr><td colspan="9" style="text-align:center; color: var(--text-muted); padding: 24px;">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Thread Stack Trace Modal -->
+            <div class="modal-overlay" id="threadModal" onclick="if(event.target===this)closeThreadModal()">
+                <div class="modal-box">
+                    <div class="modal-header">
+                        <h3 id="threadModalTitle">Thread Details</h3>
+                        <button class="modal-close" onclick="closeThreadModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" id="threadModalBody">
+                        <p style="color: var(--text-muted);">Loading...</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+        document.getElementById('sidebar-container').innerHTML = renderSidebar();
+        document.getElementById('header-container').innerHTML = renderPageHeader(
+            'API Data',
+            'API request tracking per deployment — endpoints, hit times, and response durations'
+        );
+        setActiveNav();
+
+        var allEndpoints = [];
+        var allRequests = [];
+        var allDeployments = [];
+        var currentDeployFilter = '';
+
+        function formatTs(ts) {
+            if (!ts) return '-';
+            try {
+                var d = new Date(ts);
+                if (isNaN(d.getTime())) return ts;
+                var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+                return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())
+                     + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+            } catch(e) { return ts; }
+        }
+
+        function timeClass(ms) {
+            if (ms >= 5000) return 'time-slow';
+            if (ms >= 1000) return 'time-medium';
+            return '';
+        }
+
+        function statusBadgeClass(code) {
+            if (code >= 500) return 's5xx';
+            if (code >= 400) return 's4xx';
+            if (code >= 300) return 's3xx';
+            return 's2xx';
+        }
+
+        function renderStatusCodes(codes) {
+            var parts = [];
+            Object.keys(codes).sort().forEach(function(code) {
+                var cls = statusBadgeClass(parseInt(code));
+                parts.push('<span class="status-badge ' + cls + '">' + code + ': ' + codes[code] + '</span>');
+            });
+            return parts.join(' ');
+        }
+
+        // --- Stat Cards ---
+        function renderStatCards(data) {
+            document.getElementById('valTotalHits').textContent = formatNumber(data.total_requests || 0);
+            document.getElementById('valEndpoints').textContent = formatNumber(allEndpoints.length);
+            document.getElementById('valDeployments').textContent = formatNumber(allDeployments.length);
+
+            var slowest = allEndpoints.length > 0 ? allEndpoints[0] : null;
+            var slowEl = document.getElementById('valSlowest');
+            var slowSub = document.getElementById('valSlowestSub');
+            if (slowest) {
+                slowEl.textContent = formatMs(slowest.max_time_ms);
+                slowEl.className = 'stat-value ' + (slowest.max_time_ms >= 5000 ? 'critical' : slowest.max_time_ms >= 1000 ? 'warning' : 'healthy');
+                slowSub.textContent = slowest.method + ' ' + slowest.uri;
+            }
+
+            var totalReq = data.total_requests || 0;
+            var totalErr = allDeployments.reduce(function(s, d) { return s + d.error_count; }, 0);
+            var errRate = totalReq > 0 ? ((totalErr / totalReq) * 100).toFixed(1) : '0.0';
+            var errEl = document.getElementById('valErrorRate');
+            errEl.innerHTML = errRate + '<span class="stat-unit">%</span>';
+            errEl.className = 'stat-value ' + (parseFloat(errRate) >= 5 ? 'critical' : parseFloat(errRate) >= 1 ? 'warning' : 'healthy');
+        }
+
+        // --- Deployment Summary ---
+        function renderDeployTable() {
+            var tbody = document.getElementById('deployBody');
+            document.getElementById('deploySummaryCount').textContent = allDeployments.length + ' deployments';
+
+            if (allDeployments.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color: var(--text-muted); padding: 24px;">No deployment data</td></tr>';
+                return;
+            }
+
+            var rows = allDeployments.map(function(d) {
+                var errRate = d.total_requests > 0 ? ((d.error_count / d.total_requests) * 100).toFixed(1) : '0.0';
+                var errClass = parseFloat(errRate) >= 5 ? 'time-slow' : parseFloat(errRate) >= 1 ? 'time-medium' : '';
+                return '<tr>'
+                    + '<td><strong>' + escapeHtml(d.deployment) + '</strong></td>'
+                    + '<td class="mono">' + formatNumber(d.total_requests) + '</td>'
+                    + '<td class="mono">' + formatNumber(d.endpoint_count) + '</td>'
+                    + '<td class="mono ' + timeClass(d.avg_time_ms) + '">' + formatMs(d.avg_time_ms) + '</td>'
+                    + '<td class="mono">' + formatMs(d.total_time_ms) + '</td>'
+                    + '<td class="mono ' + (d.error_count > 0 ? 'time-slow' : '') + '">' + formatNumber(d.error_count) + '</td>'
+                    + '<td class="mono ' + errClass + '">' + errRate + '%</td>'
+                    + '</tr>';
+            });
+            paginateTable('deployBody', rows);
+        }
+
+        // --- Response Time Chart ---
+        var responseChart = null;
+
+        function renderResponseTimeChart() {
+            var filtered = currentDeployFilter
+                ? allEndpoints.filter(function(e) { return e.deployment === currentDeployFilter; })
+                : allEndpoints;
+
+            var top = filtered.slice(0, 15);
+            if (top.length === 0) return;
+
+            var labels = top.map(function(e) {
+                var uri = e.uri.length > 40 ? '...' + e.uri.slice(-37) : e.uri;
+                return e.method + ' ' + uri;
+            });
+
+            var ctx = document.getElementById('responseTimeChart').getContext('2d');
+            if (responseChart) responseChart.destroy();
+
+            responseChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Max Time (ms)',
+                            data: top.map(function(e) { return e.max_time_ms; }),
+                            backgroundColor: 'rgba(255, 34, 68, 0.5)',
+                            borderColor: 'rgba(255, 34, 68, 0.8)',
+                            borderWidth: 1,
+                            borderRadius: 3
+                        },
+                        {
+                            label: 'Avg Time (ms)',
+                            data: top.map(function(e) { return e.avg_time_ms; }),
+                            backgroundColor: 'rgba(0, 212, 255, 0.5)',
+                            borderColor: 'rgba(0, 212, 255, 0.8)',
+                            borderWidth: 1,
+                            borderRadius: 3
+                        },
+                        {
+                            label: 'Min Time (ms)',
+                            data: top.map(function(e) { return e.min_time_ms; }),
+                            backgroundColor: 'rgba(0, 255, 136, 0.5)',
+                            borderColor: 'rgba(0, 255, 136, 0.8)',
+                            borderWidth: 1,
+                            borderRadius: 3
+                        }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#7da8cc', usePointStyle: true, pointStyle: 'rectRounded', font: { size: 11, family: 'JetBrains Mono, monospace' } }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(8,18,35,0.95)', titleColor: '#e0f0ff', bodyColor: '#7da8cc',
+                            borderColor: 'rgba(0,212,255,0.15)', borderWidth: 1,
+                            callbacks: {
+                                label: function(ctx) { return ' ' + ctx.dataset.label + ': ' + formatMs(ctx.parsed.x); }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#3e6080', font: { size: 10, family: 'JetBrains Mono, monospace' }, callback: function(v) { return formatMs(v); } },
+                            grid: { color: 'rgba(0,212,255,0.04)' }
+                        },
+                        y: {
+                            ticks: { color: '#3e6080', font: { size: 10, family: 'JetBrains Mono, monospace' } },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- Deployment Filter ---
+        function filterByDeploy(deploy, btn) {
+            currentDeployFilter = deploy;
+            document.querySelectorAll('.deploy-chip').forEach(function(c) { c.classList.remove('active'); });
+            btn.classList.add('active');
+            renderEndpointTable();
+            renderResponseTimeChart();
+            renderRequestLog();
+        }
+
+        function renderDeployChips() {
+            var container = document.getElementById('deployChips');
+            container.innerHTML = allDeployments.map(function(d) {
+                return '<button class="deploy-chip" onclick="filterByDeploy(\'' + escapeHtml(d.deployment) + '\', this)">' + escapeHtml(d.deployment) + '</button>';
+            }).join('');
+        }
+
+        // --- Endpoint Stats Table ---
+        function renderEndpointTable() {
+            var filtered = currentDeployFilter
+                ? allEndpoints.filter(function(e) { return e.deployment === currentDeployFilter; })
+                : allEndpoints;
+
+            document.getElementById('endpointCount').textContent = filtered.length + ' endpoints';
+            var tbody = document.getElementById('endpointBody');
+            var showServer = filtered.length > 0 && filtered[0].servers != null;
+            var colCount = showServer ? 11 : 10;
+
+            var thead = tbody.closest('table').querySelector('thead tr');
+            if (thead) {
+                var hdr = '<th>Method</th><th style="min-width: 300px;">URI</th><th>Deployment</th>';
+                if (showServer) hdr += '<th>Server</th>';
+                hdr += '<th>Hits</th><th>Avg Time</th><th>Min Time</th><th>Max Time</th><th>Status Codes</th><th>First Hit</th><th>Last Hit</th>';
+                thead.innerHTML = hdr;
+            }
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center; color: var(--text-muted); padding: 24px;">No endpoint data</td></tr>';
+                return;
+            }
+
+            var rows = filtered.map(function(e) {
+                var rowClass = e.max_time_ms >= 1000 ? ' class="row-alert"' : '';
+                var serverCell = '';
+                if (showServer) {
+                    var srvBadges = (e.servers || []).map(function(s) {
+                        return '<span class="badge badge-info" style="margin:1px;">' + escapeHtml(s) + '</span>';
+                    }).join(' ');
+                    serverCell = '<td style="font-size:11px;">' + srvBadges + '</td>';
+                }
+                return '<tr' + rowClass + '>'
+                    + '<td><span class="method-badge ' + e.method + '">' + e.method + '</span></td>'
+                    + '<td class="mono" style="font-size: 11px;">' + escapeHtml(e.uri) + '</td>'
+                    + '<td class="mono" style="font-size: 11px;">' + escapeHtml(e.deployment) + '</td>'
+                    + serverCell
+                    + '<td class="mono">' + formatNumber(e.hit_count) + '</td>'
+                    + '<td class="mono ' + timeClass(e.avg_time_ms) + '">' + formatMs(e.avg_time_ms) + '</td>'
+                    + '<td class="mono">' + formatMs(e.min_time_ms) + '</td>'
+                    + '<td class="mono ' + timeClass(e.max_time_ms) + '">' + formatMs(e.max_time_ms) + '</td>'
+                    + '<td>' + renderStatusCodes(e.status_codes) + '</td>'
+                    + '<td class="mono" style="font-size: 11px; white-space: nowrap;">' + formatTs(e.first_hit) + '</td>'
+                    + '<td class="mono" style="font-size: 11px; white-space: nowrap;">' + formatTs(e.last_hit) + '</td>'
+                    + '</tr>';
+            });
+            paginateTable('endpointBody', rows);
+        }
+
+        // --- Request Log Table ---
+        var requestLogSort = 'date';
+        function setRequestLogSort(value) {
+            requestLogSort = value;
+            renderRequestLog();
+        }
+
+        function renderRequestLog() {
+            var filtered = currentDeployFilter
+                ? allRequests.filter(function(r) { return r.deployment === currentDeployFilter; })
+                : allRequests;
+
+            var sorted;
+            if (requestLogSort === 'response') {
+                sorted = filtered.slice().sort(function(a, b) {
+                    return (b.response_time_ms || 0) - (a.response_time_ms || 0);
+                });
+            } else {
+                // date & time, newest first
+                sorted = filtered.slice().reverse();
+            }
+            var recent = sorted.slice(0, 200);
+            document.getElementById('requestLogCount').textContent = recent.length + ' of ' + filtered.length + ' requests';
+            var tbody = document.getElementById('requestLogBody');
+            var showServer = recent.length > 0 && recent[0].server_name != null;
+            var colCount = showServer ? 10 : 9;
+
+            var thead = tbody.closest('table').querySelector('thead tr');
+            if (thead) {
+                var hdr = showServer ? '<th>Server</th>' : '';
+                hdr += '<th>Timestamp</th><th>Method</th><th style="min-width: 300px;">URI</th><th>Deployment</th><th>Status</th><th>Response Time</th><th>Bytes</th><th>Thread</th><th>Client IP</th>';
+                thead.innerHTML = hdr;
+            }
+
+            if (recent.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center; color: var(--text-muted); padding: 24px;">No requests recorded</td></tr>';
+                return;
+            }
+
+            var rows = recent.map(function(r) {
+                var threadCell = '-';
+                if (r.thread) {
+                    var safeName = escapeHtml(r.thread).replace(/'/g, "\\'");
+                    var safeServerLog = r.server_name ? escapeHtml(r.server_name).replace(/'/g, "\\'") : '';
+                    threadCell = '<span class="thread-link" onclick="showThreadStack(\'' + safeName + '\', \'' + safeServerLog + '\')">' + escapeHtml(r.thread) + '</span>';
+                }
+                var rowClass = r.response_time_ms >= 1000 ? ' class="row-alert"' : '';
+                var serverLabel = r.server_name || '';
+                if (r.server_group) serverLabel += ' (' + r.server_group + ')';
+                var serverCell = showServer ? '<td class="mono" style="font-size:11px;"><span class="badge badge-info">' + escapeHtml(serverLabel) + '</span></td>' : '';
+                return '<tr' + rowClass + '>'
+                    + serverCell
+                    + '<td class="mono" style="font-size: 11px; white-space: nowrap;">' + formatTs(r.timestamp) + '</td>'
+                    + '<td><span class="method-badge ' + r.method + '">' + r.method + '</span></td>'
+                    + '<td class="mono" style="font-size: 11px;">' + escapeHtml(r.uri) + '</td>'
+                    + '<td class="mono" style="font-size: 11px;">' + escapeHtml(r.deployment) + '</td>'
+                    + '<td><span class="status-badge ' + statusBadgeClass(r.status) + '">' + r.status + '</span></td>'
+                    + '<td class="mono ' + timeClass(r.response_time_ms) + '">' + formatMs(r.response_time_ms) + '</td>'
+                    + '<td class="mono">' + formatBytes(r.bytes || 0) + '</td>'
+                    + '<td class="mono" style="font-size: 11px;">' + threadCell + '</td>'
+                    + '<td class="mono" style="font-size: 11px;">' + escapeHtml(r.remote) + '</td>'
+                    + '</tr>';
+            });
+            paginateTable('requestLogBody', rows);
+        }
+
+        // --- Thread Stack Trace Modal ---
+        function highlightFrame(frame) {
+            if (/\.(com\.|org\.|net\.)/.test(frame) && !/java\.|javax\.|sun\.|jdk\./.test(frame) && !/jboss|wildfly|undertow|xnio|arjuna/.test(frame)) {
+                return '<span class="stack-frame-app">' + escapeHtml(frame) + '</span>';
+            }
+            if (/jboss|wildfly|undertow|xnio|arjuna/.test(frame)) {
+                return '<span class="stack-frame-jboss">' + escapeHtml(frame) + '</span>';
+            }
+            return escapeHtml(frame);
+        }
+
+        function showThreadStack(threadName, serverName) {
+            var modal = document.getElementById('threadModal');
+            var body = document.getElementById('threadModalBody');
+            document.getElementById('threadModalTitle').textContent = (serverName ? '[' + serverName + '] ' : '') + threadName;
+            body.innerHTML = '<p style="color: var(--text-muted);">Loading thread details...</p>';
+            modal.classList.add('active');
+
+            fetchData('/thread-details').then(function(data) {
+                var threads = data.threads || [];
+                var thread = null;
+                var baseServer = serverName ? serverName.replace(/\s*\(.*\)$/, '') : '';
+                for (var i = 0; i < threads.length; i++) {
+                    var t = threads[i];
+                    if (t.thread_name === threadName) {
+                        if (!serverName || t.server_name === serverName || t.server_name === baseServer) {
+                            thread = t;
+                            break;
+                        }
+                        if (!thread) thread = t;
+                    }
+                }
+                if (!thread) {
+                    body.innerHTML = '<p style="color: var(--text-muted);">Thread "' + escapeHtml(threadName) + '" not found in current thread dump. It may have completed.</p>';
+                    return;
+                }
+
+                var html = '<div class="thread-meta">';
+                if (thread.server_name) html += '<div class="thread-meta-item">Server:<strong><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(thread.server_name) + '</span></strong></div>';
+                html += '<div class="thread-meta-item">State:<strong>' + escapeHtml(thread.state || '-') + '</strong></div>';
+                if (thread.thread_id) html += '<div class="thread-meta-item">ID:<strong>' + thread.thread_id + '</strong></div>';
+                if (thread.category) html += '<div class="thread-meta-item">Category:<strong>' + escapeHtml(thread.category) + '</strong></div>';
+                if (thread.task) html += '<div class="thread-meta-item">Task:<strong>' + escapeHtml(thread.task) + '</strong></div>';
+                if (thread.blocked_count) html += '<div class="thread-meta-item">Blocked:<strong>' + thread.blocked_count + '</strong></div>';
+                if (thread.waited_count) html += '<div class="thread-meta-item">Waited:<strong>' + thread.waited_count + '</strong></div>';
+                html += '</div>';
+
+                if (thread.lock_info) {
+                    html += '<div style="font-size: 11px; color: var(--warning); margin-bottom: 8px;">Lock: ' + escapeHtml(thread.lock_info) + '</div>';
+                }
+                if (thread.lock_owner_name) {
+                    html += '<div style="font-size: 11px; color: var(--critical); margin-bottom: 8px;">Lock Owner: ' + escapeHtml(thread.lock_owner_name) + ' (id: ' + (thread.lock_owner_id || '-') + ')</div>';
+                }
+
+                if (thread.stack_trace && thread.stack_trace.length > 0) {
+                    var lines = Array.isArray(thread.stack_trace) ? thread.stack_trace : thread.stack_trace.split('\n');
+                    html += '<div class="stack-trace-box">' + lines.map(highlightFrame).join('\n') + '</div>';
+                } else {
+                    html += '<p style="color: var(--text-muted); font-size: 12px;">No stack trace available.</p>';
+                }
+
+                body.innerHTML = html;
+            }).catch(function(err) {
+                body.innerHTML = '<p style="color: var(--critical);">Failed to load thread details: ' + escapeHtml(err.message) + '</p>';
+            });
+        }
+
+        function closeThreadModal() {
+            document.getElementById('threadModal').classList.remove('active');
+        }
+
+        // --- AI Analysis ---
+        async function loadAIAnalysis() {
+            var el = document.getElementById('aiApiContentTop');
+            el.className = 'ai-content loading';
+            el.textContent = 'Analyzing API performance across all deployments...';
+            try {
+                var text = await fetchAPI('/jboss/ask?q=Analyze the API request performance. Which endpoints are slowest and which deployments have the highest error rates? Use get_api_requests tool.');
+                el.className = 'ai-content';
+                el.textContent = text;
+            } catch (err) {
+                el.className = 'ai-content';
+                el.textContent = 'Failed to load AI analysis: ' + err.message;
+            }
+        }
+
+        // --- Active API Requests ---
+        function durationClass(sec) {
+            if (sec >= 60) return 'duration-stuck';
+            if (sec >= 15) return 'duration-slow';
+            return 'duration-ok';
+        }
+
+        function formatDuration(sec) {
+            if (sec < 1) return sec.toFixed(1) + 's';
+            if (sec < 60) return sec.toFixed(1) + 's';
+            if (sec < 3600) return Math.floor(sec / 60) + 'm ' + Math.floor(sec % 60) + 's';
+            return Math.floor(sec / 3600) + 'h ' + Math.floor((sec % 3600) / 60) + 'm';
+        }
+
+        function formatActiveTs(ts) {
+            if (!ts) return '-';
+            try {
+                var d = new Date(ts);
+                if (isNaN(d.getTime())) return ts;
+                var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+                return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+            } catch(e) { return ts; }
+        }
+
+        // Wall-clock instant of the last successful active-requests fetch, so the client-side
+        // ticker can advance each row's Processing Time smoothly between server fetches.
+        var activeReqFetchMs = Date.now();
+
+        function renderActiveRequests(data) {
+            activeReqFetchMs = Date.now();
+            var running = data.running_count || 0;
+            var slow = data.slow_count || 0;
+            var stuck = data.stuck_count || 0;
+            var blocked = data.blocked_count || 0;
+            var total = data.total_active || 0;
+            var health = data.health || 'UNKNOWN';
+
+            document.getElementById('arRunning').textContent = running;
+            var slowEl = document.getElementById('arSlow');
+            slowEl.textContent = slow;
+            slowEl.className = 'stat-value' + (slow > 0 ? ' warning' : '');
+            var stuckEl = document.getElementById('arStuck');
+            stuckEl.textContent = stuck;
+            stuckEl.className = 'stat-value' + (stuck > 0 ? ' critical' : '');
+            var blockedEl = document.getElementById('arBlocked');
+            blockedEl.textContent = blocked;
+            blockedEl.className = 'stat-value' + (blocked > 0 ? ' critical' : '');
+
+            document.getElementById('activeReqCount').textContent = total + ' active';
+            var healthBadgeEl = document.getElementById('activeReqHealth');
+            healthBadgeEl.textContent = health;
+            healthBadgeEl.className = 'badge badge-' + healthClass(health);
+
+            var pulse = document.getElementById('activeReqPulse');
+            if (stuck > 0 || blocked > 3) pulse.className = 'pulse-dot critical';
+            else if (slow > 0 || blocked > 0) pulse.className = 'pulse-dot warn';
+            else pulse.className = 'pulse-dot';
+
+            var reqs = data.active_requests || [];
+            var showServer = reqs.some(function(r) { return r.server_name; });
+            var colCount = showServer ? 10 : 9;
+            var tbody = document.getElementById('activeReqBody');
+
+            var thead = document.getElementById('activeReqHead');
+            var hdr = '<tr><th>Status</th><th>Processing Time</th><th>Method</th>'
+                + '<th style="min-width: 250px;">URI / Handler</th><th>Deployment</th>';
+            if (showServer) hdr += '<th>Server</th>';
+            hdr += '<th>Thread</th><th>Thread State</th><th>Client IP</th><th>Lock Info</th></tr>';
+            thead.innerHTML = hdr;
+
+            if (reqs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center; color: var(--text-muted); padding: 24px;">No active API requests currently being processed</td></tr>';
+                return;
+            }
+
+            var rows = reqs.map(function(r) {
+                var uriDisplay = escapeHtml(r.uri || '/**');
+                if (r.servlet_class) {
+                    uriDisplay += ' <span style="color:var(--text-muted);font-size:10px;">(' + escapeHtml(r.servlet_class) + ')</span>';
+                }
+
+                var lockInfo = '';
+                if (r.lock_name) {
+                    lockInfo = '<span style="font-size:10px;color:var(--warning);">' + escapeHtml(r.lock_name) + '</span>';
+                    if (r.lock_owner_name) {
+                        lockInfo += '<br><span style="font-size:10px;color:var(--critical);">owner: ' + escapeHtml(r.lock_owner_name) + '</span>';
+                    }
+                } else {
+                    lockInfo = '<span style="color:var(--text-muted);">-</span>';
+                }
+
+                var threadSafeName = escapeHtml(r.thread_name).replace(/'/g, "\\'");
+                var safeServer = r.server_name ? escapeHtml(r.server_name).replace(/'/g, "\\'") : '';
+                var threadCell = '<span class="thread-link" onclick="showThreadStack(\'' + threadSafeName + '\', \'' + safeServer + '\')">' + escapeHtml(r.thread_name) + '</span>';
+
+                var stateClass = '';
+                if (r.thread_state === 'BLOCKED') stateClass = 'time-slow';
+                else if (r.thread_state === 'RUNNABLE') stateClass = 'duration-ok';
+
+                var serverCell = '';
+                if (showServer) {
+                    serverCell = '<td><span class="badge badge-info" style="font-size:10px;">' + escapeHtml(r.server_name || '-') + '</span></td>';
+                }
+
+                return '<tr>'
+                    + '<td><span class="req-status-badge ' + r.status + '">' + r.status + '</span></td>'
+                    + '<td class="mono duration-cell ' + durationClass(r.elapsed_seconds) + '" data-base-elapsed="' + (r.elapsed_seconds || 0) + '">' + formatDuration(r.elapsed_seconds) + '</td>'
+                    + '<td><span class="method-badge ' + (r.method || '') + '">' + (r.method || '?') + '</span></td>'
+                    + '<td class="mono" style="font-size:11px;">' + uriDisplay + '</td>'
+                    + '<td class="mono" style="font-size:11px;">' + escapeHtml(r.deployment || '-') + '</td>'
+                    + serverCell
+                    + '<td class="mono" style="font-size:11px;">' + threadCell + '</td>'
+                    + '<td class="mono ' + stateClass + '" style="font-size:11px;">' + escapeHtml(r.thread_state || '-') + '</td>'
+                    + '<td class="mono" style="font-size:11px;">' + escapeHtml(r.client_ip || '-') + '</td>'
+                    + '<td>' + lockInfo + '</td>'
+                    + '</tr>';
+            });
+            paginateTable('activeReqBody', rows);
+        }
+
+        async function loadActiveRequests() {
+            try {
+                var data = await fetchData('/active-api-requests');
+                renderActiveRequests(data);
+            } catch (err) {
+                document.getElementById('activeReqBody').innerHTML =
+                    '<tr><td colspan="11" style="text-align:center; color: var(--critical); padding: 24px;">Failed to load: ' + escapeHtml(err.message) + '</td></tr>';
+            }
+        }
+
+        // --- Load Data ---
+        async function loadApiData() {
+            loadActiveRequests();
+            try {
+                var data = await fetchData('/access-log');
+
+                if (data.message && (!data.endpoints || data.endpoints.length === 0)) {
+                    document.getElementById('endpointBody').innerHTML =
+                        '<tr><td colspan="10" style="text-align:center; color: var(--text-muted); padding: 24px;">' + escapeHtml(data.message) + '</td></tr>';
+                    return;
+                }
+
+                allEndpoints = data.endpoints || [];
+                allRequests = data.requests || [];
+                allDeployments = data.deployments || [];
+
+                renderStatCards(data);
+                renderDeployTable();
+                renderDeployChips();
+                renderEndpointTable();
+                renderResponseTimeChart();
+                renderRequestLog();
+            } catch (err) {
+                showToast('Failed to load API data: ' + err.message, 'error');
+            }
+        }
+
+        // Advance each active request's Processing Time smoothly (every 0.5s) from the wall clock,
+        // using the elapsed value captured at the last server fetch as the base. This makes the
+        // timer tick in real time without fetching from JBoss twice a second (each fetch triggers
+        // a thread dump). New/finished requests and thread state are picked up by the 5s fetch.
+        function tickActiveDurations() {
+            var cells = document.querySelectorAll('#activeReqBody .duration-cell[data-base-elapsed]');
+            if (!cells.length) return;
+            var delta = (Date.now() - activeReqFetchMs) / 1000;
+            cells.forEach(function(cell) {
+                var base = parseFloat(cell.getAttribute('data-base-elapsed')) || 0;
+                var sec = base + delta;
+                cell.textContent = formatDuration(sec);
+                cell.className = 'mono duration-cell ' + durationClass(sec);
+            });
+        }
+
+        // Auto-refresh. This page has no auto-refresh toggle, so setupAutoRefresh() would do
+        // nothing — drive the refresh explicitly here instead.
+        //  - Processing Time display: ticks every 0.5s client-side (smooth, no server load).
+        //  - Active API Requests data (new/finished requests, state): fetched every 5s.
+        //  - The heavier access-log data (endpoints, request log, charts): every 30s.
+        var TICK_MS = 500;
+        var ACTIVE_REFRESH_MS = 5000;
+        var FULL_REFRESH_MS = 30000;
+        loadApiData();
+        setInterval(tickActiveDurations, TICK_MS);
+        setInterval(loadActiveRequests, ACTIVE_REFRESH_MS);
+        setInterval(loadApiData, FULL_REFRESH_MS);
+    </script>
+</body>
+</html>

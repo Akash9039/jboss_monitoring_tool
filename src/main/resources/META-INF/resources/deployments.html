@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JBoss Monitor - Deployments</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <style>
+        .data-table tr.clickable-row {
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .data-table tr.clickable-row:hover td {
+            background: rgba(0, 212, 255, 0.04);
+        }
+        .data-table tr.clickable-row.selected td {
+            background: rgba(0, 212, 255, 0.06);
+            border-color: rgba(0, 212, 255, 0.15);
+            box-shadow: inset 2px 0 0 var(--accent);
+        }
+        .subsystem-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-family: var(--font-mono);
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            background: rgba(0, 212, 255, 0.06);
+            color: var(--accent);
+            border: 1px solid rgba(0, 212, 255, 0.12);
+            margin: 2px 2px 2px 0;
+        }
+        .detail-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.08);
+        }
+        .detail-header h4 {
+            font-size: 15px;
+            font-weight: 600;
+            font-family: var(--font-mono);
+            letter-spacing: 0.3px;
+        }
+        .detail-header .runtime-name {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            margin-top: 4px;
+        }
+        .detail-section {
+            margin-bottom: 20px;
+        }
+        .detail-section h5 {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: var(--accent);
+            margin-bottom: 10px;
+            font-family: var(--font-mono);
+            opacity: 0.7;
+        }
+        .subsystems-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .detail-placeholder {
+            text-align: center;
+            padding: 48px 24px;
+            color: var(--text-muted);
+        }
+        .detail-placeholder .placeholder-icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+            opacity: 0.15;
+        }
+        .detail-placeholder p {
+            font-size: 12px;
+            font-family: var(--font-mono);
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+    <div class="main-content">
+        <div id="header-container"></div>
+        <div class="content">
+
+            <!-- AI Analysis Panel -->
+            <div class="ai-panel">
+                <div class="ai-header">
+                    &#9733; AI Deployment Analysis
+                </div>
+                <div class="ai-content" id="aiDeploymentsContent">Click "Re-analyze" to run AI deployment analysis.</div>
+                <div style="margin-top: 16px; display: flex; gap: 8px;">
+                    <button class="btn btn-primary" onclick="loadAIAnalysis()">&#8635; Re-analyze</button>
+                </div>
+            </div>
+
+            <!-- Stat Cards Row -->
+            <div class="stats-row" id="statsRow">
+                <div class="stat-card">
+                    <div class="stat-label">Total Deployments</div>
+                    <div class="stat-value" id="valTotalDeployments">--</div>
+                    <div class="stat-sub">Applications deployed to server</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Enabled</div>
+                    <div class="stat-value healthy" id="valEnabled">--</div>
+                    <div class="stat-sub">Active and serving requests</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Failed / Disabled</div>
+                    <div class="stat-value critical" id="valFailed">--</div>
+                    <div class="stat-sub">Requires attention</div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <!-- Deployments Table -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Deployments</h3>
+                        <span class="badge badge-info" id="deploymentCountBadge">--</span>
+                    </div>
+                    <div class="card-body no-padding">
+                        <table class="data-table" id="deploymentsTable">
+                            <thead id="deploymentsTableHead">
+                                <tr>
+                                    <th>Deployment Name</th>
+                                    <th>Runtime Name</th>
+                                    <th>Status</th>
+                                    <th>Enabled</th>
+                                    <th>Persistent</th>
+                                    <th>Subsystems</th>
+                                </tr>
+                            </thead>
+                            <tbody id="deploymentsTableBody">
+                                <tr><td colspan="6" class="empty-state"><p>Loading deployments...</p></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Deployment Details -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Deployment Details</h3>
+                    </div>
+                    <div class="card-body" id="deploymentDetails">
+                        <div class="detail-placeholder">
+                            <div class="placeholder-icon">&#9744;</div>
+                            <p>Select a deployment from the table to view details</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+        // Render layout components
+        document.getElementById('sidebar-container').innerHTML = renderSidebar();
+        document.getElementById('header-container').innerHTML = renderPageHeader(
+            'Deployments',
+            'Application deployment status, health, and servlet metrics'
+        );
+        setActiveNav();
+
+        // --- Live deployment data ---
+        let deployments = [];
+        let selectedDeployment = null;
+
+        // --- Render Functions ---
+
+        function updateStatCards(deployments) {
+            const total = deployments.length;
+            const enabled = deployments.filter(d => d.enabled).length;
+            const failed = total - enabled;
+
+            document.getElementById('valTotalDeployments').textContent = formatNumber(total);
+            document.getElementById('valEnabled').textContent = formatNumber(enabled);
+            document.getElementById('valFailed').textContent = formatNumber(failed);
+            document.getElementById('deploymentCountBadge').textContent = total + ' total';
+
+            const failedEl = document.getElementById('valFailed');
+            failedEl.className = 'stat-value ' + (failed > 0 ? 'critical' : 'healthy');
+        }
+
+        function renderDeploymentsTable(deps) {
+            var showServers = deps.some(function(d) { return d.servers && d.servers.length > 0; });
+            var colCount = showServers ? 7 : 6;
+
+            var thead = document.getElementById('deploymentsTableHead');
+            var headerHtml = '<tr><th>Deployment Name</th><th>Runtime Name</th>';
+            if (showServers) headerHtml += '<th>Servers</th>';
+            headerHtml += '<th>Status</th><th>Enabled</th><th>Persistent</th><th>Subsystems</th></tr>';
+            thead.innerHTML = headerHtml;
+
+            const tbody = document.getElementById('deploymentsTableBody');
+            if (deps.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '"><div class="empty-state"><div class="empty-icon">&#9744;</div><p>No deployments found</p></div></td></tr>';
+                return;
+            }
+
+            var rows = deps.map((dep, idx) => {
+                const statusBadge = dep.status === 'OK'
+                    ? '<span class="badge badge-healthy">OK</span>'
+                    : '<span class="badge badge-critical">' + escapeHtml(dep.status) + '</span>';
+                const enabledBadge = dep.enabled
+                    ? '<span class="badge badge-healthy">ENABLED</span>'
+                    : '<span class="badge badge-critical">DISABLED</span>';
+                const subsystems = dep.subsystems || [];
+                const subsystemsHtml = subsystems
+                    .map(s => '<span class="subsystem-tag">' + escapeHtml(s) + '</span>')
+                    .join('');
+
+                var serversCell = '';
+                if (showServers) {
+                    var serversList = dep.servers || [];
+                    serversCell = '<td>' + serversList
+                        .map(s => '<span class="subsystem-tag">' + escapeHtml(s) + '</span>')
+                        .join('') + '</td>';
+                }
+
+                return `<tr class="clickable-row${selectedDeployment === idx ? ' selected' : ''}" data-index="${idx}">
+                    <td class="mono">${escapeHtml(dep.name)}</td>
+                    <td class="mono">${escapeHtml(dep.runtime_name || dep.name)}</td>
+                    ${serversCell}
+                    <td>${statusBadge}</td>
+                    <td>${enabledBadge}</td>
+                    <td>${dep.persistent ? 'Yes' : 'No'}</td>
+                    <td>${subsystemsHtml}</td>
+                </tr>`;
+            });
+            paginateTable('deploymentsTableBody', rows);
+
+            // Attach click handlers
+            tbody.querySelectorAll('.clickable-row').forEach(row => {
+                row.addEventListener('click', () => {
+                    const idx = parseInt(row.getAttribute('data-index'));
+                    selectedDeployment = idx;
+                    renderDeploymentsTable(deps);
+                    renderDeploymentDetails(deps[idx]);
+                });
+            });
+        }
+
+        function renderDeploymentDetails(dep) {
+            const panel = document.getElementById('deploymentDetails');
+            if (!dep) {
+                panel.innerHTML = `
+                    <div class="detail-placeholder">
+                        <div class="placeholder-icon">&#9744;</div>
+                        <p>Select a deployment from the table to view details</p>
+                    </div>`;
+                return;
+            }
+
+            const enabledBadge = dep.enabled
+                ? healthBadge('HEALTHY')
+                : healthBadge('CRITICAL');
+            const statusLabel = dep.enabled ? 'Enabled' : 'Disabled';
+
+            const subsystems = dep.subsystems || [];
+            const subsystemsHtml = subsystems
+                .map(s => '<span class="subsystem-tag">' + escapeHtml(s) + '</span>')
+                .join('');
+
+            // Build servlet stats section
+            const servlets = dep._servlets || [];
+            let servletHtml = '';
+            if (servlets.length > 0) {
+                servletHtml = `
+                    <div class="detail-section">
+                        <h5>Servlet Statistics</h5>
+                        ${servlets.map(srv => `
+                            <div style="margin-bottom: 12px; padding: 12px; background: rgba(0,0,0,0.15); border-radius: 6px;">
+                                <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px; font-family: var(--font-mono);">${escapeHtml(srv.servlet)}</div>
+                                ${createMetricRow('Request Count', formatNumber(srv.request_count))}
+                                ${createMetricRow('Total Request Time', formatNumber(srv.total_request_time_ms), ' ms')}
+                                ${createMetricRow('Min Request Time', formatNumber(srv.min_request_time_ms), ' ms')}
+                                ${createMetricRow('Max Request Time', formatNumber(srv.max_request_time_ms), ' ms')}
+                            </div>
+                        `).join('')}
+                    </div>`;
+            } else {
+                servletHtml = `
+                    <div class="detail-section">
+                        <h5>Servlet Statistics</h5>
+                        <div style="font-size: 13px; color: var(--text-muted);">No servlet data available</div>
+                    </div>`;
+            }
+
+            // Build session stats section
+            const sess = dep._sessions;
+            let sessionHtml = '';
+            if (sess) {
+                sessionHtml = `
+                    <div class="detail-section">
+                        <h5>HTTP Session Statistics</h5>
+                        ${createMetricRow('Active Sessions', formatNumber(sess.active_sessions))}
+                        ${createMetricRow('Expired Sessions', formatNumber(sess.expired_sessions))}
+                        ${createMetricRow('Created Sessions', formatNumber(sess.sessions_created))}
+                    </div>`;
+            } else {
+                sessionHtml = `
+                    <div class="detail-section">
+                        <h5>HTTP Session Statistics</h5>
+                        <div style="font-size: 13px; color: var(--text-muted);">No session data available</div>
+                    </div>`;
+            }
+
+            var serversHtml = '';
+            if (dep.servers && dep.servers.length > 0) {
+                serversHtml = `
+                    <div class="detail-section">
+                        <h5>Deployed On Servers</h5>
+                        <div class="subsystems-list">${dep.servers.map(s => '<span class="subsystem-tag">' + escapeHtml(s) + '</span>').join('')}</div>
+                    </div>`;
+            }
+
+            panel.innerHTML = `
+                <div class="detail-header">
+                    <div>
+                        <h4>${escapeHtml(dep.name)}</h4>
+                        <div class="runtime-name">Runtime: ${escapeHtml(dep.runtime_name || dep.name)}</div>
+                    </div>
+                    ${enabledBadge}
+                </div>
+
+                <div class="detail-section">
+                    <h5>General</h5>
+                    ${createMetricRow('Status', dep.status)}
+                    ${createMetricRow('State', statusLabel)}
+                    ${createMetricRow('Persistent', dep.persistent ? 'Yes' : 'No')}
+                </div>
+
+                ${serversHtml}
+
+                <div class="detail-section">
+                    <h5>Subsystems</h5>
+                    <div class="subsystems-list">${subsystemsHtml}</div>
+                </div>
+
+                ${servletHtml}
+                ${sessionHtml}
+            `;
+        }
+
+        // --- AI Analysis ---
+        async function loadAIAnalysis() {
+            const el = document.getElementById('aiDeploymentsContent');
+            el.className = 'ai-content loading';
+            el.textContent = 'Analyzing deployment status...';
+
+            try {
+                const text = await fetchAPI('/jboss/deployments');
+                el.className = 'ai-content';
+                el.textContent = text;
+            } catch (err) {
+                el.className = 'ai-content';
+                el.textContent = 'Failed to load deployment analysis: ' + err.message;
+                showToast('Deployment analysis failed: ' + err.message, 'error');
+            }
+        }
+
+        // --- Fetch live data and merge ---
+        async function loadDeploymentData() {
+            try {
+                const [depResponse, sessResponse, webResponse] = await Promise.all([
+                    fetchData('/deployments'),
+                    fetchData('/sessions').catch(() => ({ sessions: [] })),
+                    fetchData('/web').catch(() => ({ web: { deployments: [] } }))
+                ]);
+
+                const rawDeps = (depResponse && depResponse.deployments) ? depResponse.deployments : [];
+                const rawSessions = (sessResponse && sessResponse.sessions) ? sessResponse.sessions : [];
+                const rawWebDeps = (webResponse && webResponse.web && webResponse.web.deployments) ? webResponse.web.deployments : [];
+
+                // Build a lookup for sessions by deployment name
+                const sessionsByDep = {};
+                rawSessions.forEach(s => { sessionsByDep[s.deployment] = s; });
+
+                // Build a lookup for servlets by deployment name
+                const servletsByDep = {};
+                rawWebDeps.forEach(w => {
+                    if (!servletsByDep[w.deployment]) servletsByDep[w.deployment] = [];
+                    servletsByDep[w.deployment].push(w);
+                });
+
+                // Merge into enriched deployment objects
+                deployments = rawDeps.map(dep => ({
+                    ...dep,
+                    _sessions: sessionsByDep[dep.name] || null,
+                    _servlets: servletsByDep[dep.name] || []
+                }));
+            } catch (err) {
+                console.error('Failed to fetch deployment data:', err);
+                showToast('Failed to load deployment data: ' + err.message, 'error');
+            }
+        }
+
+        // --- Initialize ---
+        async function refreshPage() {
+            await loadDeploymentData();
+            updateStatCards(deployments);
+            renderDeploymentsTable(deployments);
+            if (selectedDeployment !== null && deployments[selectedDeployment]) {
+                renderDeploymentDetails(deployments[selectedDeployment]);
+            }
+        }
+
+        setupAutoRefresh(refreshPage);
+
+        // Initial load
+        refreshPage();
+    </script>
+</body>
+</html>

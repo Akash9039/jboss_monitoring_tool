@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JBoss Monitor - Server Logs</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <style>
+        .table-scroll { overflow-x: auto; }
+
+        /* Level badges */
+        .level-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            letter-spacing: 0.5px;
+            min-width: 48px;
+            text-align: center;
+        }
+        .level-badge.ERROR, .level-badge.FATAL { background: rgba(255,34,68,0.08); color: #ff2244; border: 1px solid rgba(255,34,68,0.2); box-shadow: 0 0 6px rgba(255,34,68,0.08); }
+        .level-badge.WARN  { background: rgba(255,170,0,0.08); color: #ffaa00; border: 1px solid rgba(255,170,0,0.2); }
+        .level-badge.INFO  { background: rgba(0,255,136,0.08); color: #00ff88; border: 1px solid rgba(0,255,136,0.15); }
+        .level-badge.DEBUG { background: rgba(0,212,255,0.08); color: #00d4ff; border: 1px solid rgba(0,212,255,0.15); }
+        .level-badge.TRACE { background: rgba(62,96,128,0.1); color: #3e6080; border: 1px solid rgba(62,96,128,0.15); }
+
+        /* Level filter chips */
+        .filter-bar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .filter-chip {
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            background: transparent;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+        }
+        .filter-chip:hover { border-color: var(--accent); color: var(--accent); }
+        .filter-chip.active {
+            background: rgba(0,212,255,0.08);
+            border-color: var(--accent);
+            color: var(--accent);
+            box-shadow: 0 0 10px rgba(0,212,255,0.08);
+        }
+        .filter-chip .chip-count {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            margin-left: 4px;
+            opacity: 0.7;
+        }
+
+        /* Expandable row */
+        .log-row { cursor: pointer; transition: background 0.1s; }
+        .log-row:hover td { background: rgba(0,212,255,0.02); }
+        .log-row.expanded td { background: rgba(0,212,255,0.04); border-bottom-color: transparent; }
+
+        .log-detail-row td {
+            padding: 0 !important;
+            background: rgba(0,0,0,0.2);
+        }
+        .log-detail-row.hidden { display: none; }
+
+        .log-detail-inner {
+            padding: 16px 20px;
+        }
+
+        /* Stacktrace box */
+        .stacktrace-box {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(0,212,255,0.08);
+            border-radius: 4px;
+            padding: 12px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1.6;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-top: 10px;
+        }
+        .stack-frame-app { color: #00d4ff; }
+        .stack-frame-jboss { color: #ffaa00; }
+        .stack-frame-java { color: var(--text-muted); }
+
+        /* Message text */
+        .log-message {
+            font-size: 12px;
+            line-height: 1.5;
+            word-break: break-word;
+            max-width: 600px;
+        }
+
+        .log-code {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            background: rgba(0,212,255,0.08);
+            color: var(--accent);
+            margin-right: 4px;
+            border: 1px solid rgba(0,212,255,0.15);
+        }
+
+        .log-logger {
+            font-size: 11px;
+            color: var(--text-muted);
+            max-width: 250px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Has stacktrace indicator */
+        .has-stack-icon {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            background: rgba(255,34,68,0.08);
+            color: #ff2244;
+            font-size: 10px;
+            text-align: center;
+            line-height: 16px;
+            font-weight: 700;
+            margin-left: 6px;
+            vertical-align: middle;
+            border: 1px solid rgba(255,34,68,0.15);
+        }
+
+        /* KCS article card */
+        .kcs-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 14px 18px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            transition: all 0.15s;
+        }
+        .kcs-card:hover {
+            border-color: var(--accent);
+            background: var(--bg-card-hover);
+        }
+        .kcs-icon {
+            width: 36px; height: 36px;
+            background: rgba(255,34,68,0.06);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+            color: var(--critical);
+            border: 1px solid rgba(255,34,68,0.12);
+        }
+        .kcs-info { flex: 1; min-width: 0; }
+        .kcs-info .kcs-code {
+            font-family: var(--font-mono);
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .kcs-info .kcs-msg {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .kcs-info .kcs-count {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .kcs-links {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+            align-self: center;
+        }
+        .kcs-link {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-decoration: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .kcs-link:hover {
+            border-color: var(--critical);
+            color: var(--critical);
+            background: rgba(255,34,68,0.06);
+            box-shadow: 0 0 10px rgba(255,34,68,0.08);
+        }
+        .kcs-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* AI solution inside KCS card */
+        .kcs-ai-solution {
+            margin-top: 10px;
+            padding: 12px 14px;
+            background: linear-gradient(135deg, rgba(0,212,255,0.03), rgba(170,68,255,0.02));
+            border: 1px solid rgba(0,212,255,0.1);
+            border-radius: 4px;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+            font-family: var(--font-sans);
+            backdrop-filter: blur(4px);
+        }
+        .kcs-ai-solution.loading {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+        .kcs-ai-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .kcs-card-inner {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .kcs-card-body { flex: 1; min-width: 0; }
+        .btn-ai-fix {
+            padding: 5px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            border: 1px solid rgba(0,212,255,0.25);
+            background: rgba(0,212,255,0.06);
+            color: var(--accent);
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+            font-family: var(--font-mono);
+        }
+        .btn-ai-fix:hover {
+            background: rgba(0,212,255,0.12);
+            border-color: var(--accent);
+            box-shadow: 0 0 12px rgba(0,212,255,0.1);
+        }
+        .btn-ai-fix:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-ai-fix.done {
+            border-color: rgba(0,255,136,0.25);
+            background: rgba(0,255,136,0.06);
+            color: var(--healthy);
+        }
+        .severity-badge {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 9px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            margin-left: 6px;
+        }
+        .severity-badge.critical { background: rgba(255,34,68,0.08); color: #ff2244; border: 1px solid rgba(255,34,68,0.15); }
+        .severity-badge.high { background: rgba(255,170,0,0.08); color: #ffaa00; border: 1px solid rgba(255,170,0,0.15); }
+        .severity-badge.medium { background: rgba(0,212,255,0.08); color: #00d4ff; border: 1px solid rgba(0,212,255,0.15); }
+        .severity-badge.low { background: rgba(0,255,136,0.08); color: #00ff88; border: 1px solid rgba(0,255,136,0.15); }
+
+        /* Search bar */
+        .search-bar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .search-input {
+            flex: 1;
+            padding: 8px 14px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: rgba(0,0,0,0.3);
+            color: var(--text-primary);
+            font-size: 13px;
+            font-family: var(--font-mono);
+            outline: none;
+        }
+        .search-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 15px rgba(0,212,255,0.1);
+        }
+        .search-input::placeholder { color: var(--text-muted); }
+
+        /* Detail meta row */
+        .detail-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .detail-meta-item {
+            font-size: 11px;
+            color: var(--text-secondary);
+            background: rgba(0,212,255,0.03);
+            padding: 4px 10px;
+            border-radius: 4px;
+            border: 1px solid rgba(0,212,255,0.08);
+            font-family: var(--font-mono);
+        }
+        .detail-meta-item strong { color: var(--text-primary); margin-left: 4px; }
+        .detail-full-msg {
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--text-primary);
+            word-break: break-word;
+            padding: 10px 12px;
+            background: rgba(0,0,0,0.15);
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+    <div class="main-content">
+        <div id="header-container"></div>
+        <div class="content">
+
+            <!-- AI Analysis Panel -->
+            <div class="ai-panel">
+                <div class="ai-header">&#9733; AI Log Analysis</div>
+                <div class="ai-content" id="aiLogContent">Click the button below to run AI analysis on server log errors and warnings.</div>
+                <div style="margin-top: 12px; display: flex; gap: 8px;">
+                    <button class="btn btn-primary" onclick="runAILogAnalysis()">&#9733; Analyze Errors</button>
+                    <button class="btn" onclick="runAILogAnalysisFull()">&#9733; Deep Analysis</button>
+                </div>
+            </div>
+
+            <!-- Stat Cards -->
+            <div class="stats-row">
+                <div class="stat-card">
+                    <div class="stat-label">Total Entries</div>
+                    <div class="stat-value" id="valTotal">--</div>
+                    <div class="stat-sub">WARN + ERROR + FATAL</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Errors</div>
+                    <div class="stat-value critical" id="valErrors">--</div>
+                    <div class="stat-sub">ERROR + FATAL</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Warnings</div>
+                    <div class="stat-value warning" id="valWarnings">--</div>
+                    <div class="stat-sub">WARN level</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">With Stacktrace</div>
+                    <div class="stat-value" id="valStacktraces">--</div>
+                    <div class="stat-sub">Entries with exception traces</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Unique Codes</div>
+                    <div class="stat-value" id="valCodes">--</div>
+                    <div class="stat-sub">Distinct JBoss error codes</div>
+                </div>
+            </div>
+
+            <!-- Red Hat KCS Suggestions + AI Solutions -->
+            <div class="card" id="kcsCard" style="display: none;">
+                <div class="card-header">
+                    <h3>Error Codes &amp; AI Solutions</h3>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span class="badge badge-critical" id="kcsCount">0 codes</span>
+                        <button class="btn btn-primary" onclick="fetchAllAISolutions()" id="btnAllAISolutions" style="font-size: 12px; padding: 5px 14px;">&#9733; Get All AI Solutions</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="kcs-grid" id="kcsGrid"></div>
+                </div>
+            </div>
+
+            <!-- Log Entries Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Server Log Entries</h3>
+                    <div class="filter-bar">
+                        <span style="font-size: 12px; color: var(--text-muted);">Filter:</span>
+                        <button class="filter-chip active" onclick="filterLevel('', this)">All</button>
+                        <button class="filter-chip" onclick="filterLevel('ERROR', this)">ERROR <span class="chip-count" id="chipError">0</span></button>
+                        <button class="filter-chip" onclick="filterLevel('WARN', this)">WARN <span class="chip-count" id="chipWarn">0</span></button>
+                        <button class="filter-chip" onclick="filterLevel('FATAL', this)">FATAL <span class="chip-count" id="chipFatal">0</span></button>
+                        <button class="filter-chip" onclick="filterLevel('INFO', this)">INFO <span class="chip-count" id="chipInfo">0</span></button>
+                        <span class="badge badge-info" id="logEntryCount">0 entries</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="search-bar">
+                        <input type="text" class="search-input" id="logSearch" placeholder="Search logs by message, logger, code, or thread..." oninput="applyFilters()">
+                    </div>
+                    <div class="table-scroll">
+                        <table class="data-table" id="logTable">
+                            <thead>
+                                <tr>
+                                    <th style="width: 28px;"></th>
+                                    <th>Timestamp</th>
+                                    <th>Level</th>
+                                    <th>Code</th>
+                                    <th>Logger</th>
+                                    <th>Thread</th>
+                                    <th style="min-width: 350px;">Message</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logBody">
+                                <tr><td colspan="7" style="text-align:center; color: var(--text-muted); padding: 24px;">Loading server logs...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+        document.getElementById('sidebar-container').innerHTML = renderSidebar();
+        document.getElementById('header-container').innerHTML = renderPageHeader(
+            'Server Logs',
+            'JBoss server.log analysis — errors, warnings, stacktraces, and Red Hat KCS suggestions'
+        );
+        setActiveNav();
+
+        var allLogEntries = [];
+        var allKcsSuggestions = [];
+        var currentLevelFilter = '';
+        var includeInfoLevel = false;
+
+        function formatLogTs(ts) {
+            if (!ts) return '-';
+            try {
+                var parts = ts.split(',');
+                return parts[0] || ts;
+            } catch(e) { return ts; }
+        }
+
+        function shortLogger(logger) {
+            if (!logger) return '-';
+            var parts = logger.replace(/[\[\]]/g, '').split('.');
+            if (parts.length <= 2) return logger.replace(/[\[\]]/g, '');
+            return parts.slice(-2).join('.');
+        }
+
+        function highlightStackFrame(frame) {
+            var trimmed = frame.trim();
+            if (!trimmed) return '';
+            if (/\.(com\.|org\.|net\.)/.test(trimmed) && !/java\.|javax\.|sun\.|jdk\./.test(trimmed) && !/jboss|wildfly|undertow|xnio|arjuna|hibernate/.test(trimmed)) {
+                return '<span class="stack-frame-app">' + escapeHtml(trimmed) + '</span>';
+            }
+            if (/jboss|wildfly|undertow|xnio|arjuna|hibernate|weld/.test(trimmed)) {
+                return '<span class="stack-frame-jboss">' + escapeHtml(trimmed) + '</span>';
+            }
+            return '<span class="stack-frame-java">' + escapeHtml(trimmed) + '</span>';
+        }
+
+        // --- Stat Cards ---
+        function renderStatCards(data) {
+            var summary = data.level_summary || {};
+            var errors = (summary['ERROR'] || 0) + (summary['FATAL'] || 0);
+            var warns = summary['WARN'] || 0;
+            var total = data.total || 0;
+            var withStack = 0;
+            var codes = new Set();
+            (data.entries || []).forEach(function(e) {
+                if (e.stacktrace && e.stacktrace.length > 0) withStack++;
+                if (e.jboss_code) codes.add(e.jboss_code);
+            });
+
+            document.getElementById('valTotal').textContent = formatNumber(total);
+            document.getElementById('valErrors').textContent = formatNumber(errors);
+            document.getElementById('valWarnings').textContent = formatNumber(warns);
+            document.getElementById('valStacktraces').textContent = formatNumber(withStack);
+            document.getElementById('valCodes').textContent = formatNumber(codes.size);
+
+            document.getElementById('chipError').textContent = summary['ERROR'] || 0;
+            document.getElementById('chipWarn').textContent = summary['WARN'] || 0;
+            document.getElementById('chipFatal').textContent = summary['FATAL'] || 0;
+            document.getElementById('chipInfo').textContent = summary['INFO'] || 0;
+        }
+
+        // --- KCS Suggestions + AI Solutions ---
+        var aiSolutionCache = {};
+
+        function renderKcsSuggestions(suggestions) {
+            var card = document.getElementById('kcsCard');
+            var grid = document.getElementById('kcsGrid');
+            var countEl = document.getElementById('kcsCount');
+
+            if (!suggestions || suggestions.length === 0) {
+                card.style.display = 'none';
+                return;
+            }
+
+            card.style.display = 'block';
+            countEl.textContent = suggestions.length + ' codes';
+
+            grid.innerHTML = suggestions.map(function(s, idx) {
+                var severity = guessSeverity(s);
+                var cached = aiSolutionCache[s.code];
+                var solutionHtml = '';
+                if (cached) {
+                    solutionHtml = '<div class="kcs-ai-solution" id="aiSol' + idx + '">'
+                        + '<div class="kcs-ai-label">&#9733; AI Solution</div>'
+                        + escapeHtml(cached)
+                        + '</div>';
+                } else {
+                    solutionHtml = '<div class="kcs-ai-solution loading" id="aiSol' + idx + '" style="display:none;"></div>';
+                }
+
+                var serverInfo = '';
+                if (s.servers && s.servers.length > 0) {
+                    serverInfo = '<div style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px;">'
+                        + s.servers.map(function(sv) {
+                            return '<span class="badge badge-info" style="font-size: 9px; padding: 1px 6px;">'
+                                + escapeHtml(sv.name) + ' <span style="opacity:0.7;">(' + sv.count + ')</span></span>';
+                        }).join('')
+                        + '</div>';
+                }
+
+                return '<div class="kcs-card">'
+                    + '<div class="kcs-card-inner">'
+                    + '<div class="kcs-icon">&#9888;</div>'
+                    + '<div class="kcs-card-body">'
+                    + '<div class="kcs-info">'
+                    + '<div class="kcs-code">' + escapeHtml(s.code)
+                    + '<span class="severity-badge ' + severity + '">' + severity + '</span>'
+                    + '</div>'
+                    + '<div class="kcs-msg" title="' + escapeHtml(s.message) + '">' + escapeHtml(s.message) + '</div>'
+                    + '<div class="kcs-count">Occurred ' + s.count + ' time' + (s.count > 1 ? 's' : '') + '</div>'
+                    + serverInfo
+                    + '</div>'
+                    + '<div class="kcs-links">'
+                    + '<a class="kcs-link" href="' + escapeHtml(s.search_url) + '" target="_blank" rel="noopener">Search KCS</a>'
+                    + '<button class="btn-ai-fix' + (cached ? ' done' : '') + '" onclick="fetchAISolution(' + idx + ', \'' + escapeHtml(s.code) + '\', event)" id="btnAi' + idx + '"'
+                    + (cached ? ' disabled' : '') + '>'
+                    + (cached ? '&#10003; Solved' : '&#9733; AI Fix')
+                    + '</button>'
+                    + '</div>'
+                    + '</div>'
+                    + '</div>'
+                    + solutionHtml
+                    + '</div>';
+            }).join('');
+        }
+
+        function guessSeverity(s) {
+            var msg = (s.message || '').toLowerCase();
+            var code = (s.code || '').toUpperCase();
+            if (/fatal|outofmemory|deadlock|shutdown|kill/.test(msg)) return 'critical';
+            if (/error|fail|exception|refused|timeout|rejected/.test(msg)) return 'high';
+            if (/warn|deprecat|slow|retry/.test(msg) || s.count > 5) return 'medium';
+            return 'low';
+        }
+
+        async function fetchAISolution(idx, code, event) {
+            if (event) event.stopPropagation();
+            var btn = document.getElementById('btnAi' + idx);
+            var solEl = document.getElementById('aiSol' + idx);
+            if (!btn || !solEl) return;
+
+            btn.disabled = true;
+            btn.innerHTML = '&#8987; Loading...';
+            solEl.style.display = 'block';
+            solEl.className = 'kcs-ai-solution loading';
+            solEl.innerHTML = '<div class="kcs-ai-label">&#9733; AI Solution</div>Analyzing error code ' + escapeHtml(code) + '...';
+
+            var suggestion = allKcsSuggestions.find(function(s) { return s.code === code; });
+            var msgContext = suggestion ? suggestion.message : code;
+
+            try {
+                var text = await fetchAPI('/jboss/ask?q=' + encodeURIComponent(
+                    'For the JBoss error code ' + code + ' with message: "' + msgContext + '". '
+                    + 'Provide a concise solution: '
+                    + '1. What this error means (1 line) '
+                    + '2. Root cause (1-2 lines) '
+                    + '3. How to fix it — specific steps, CLI commands, or config changes '
+                    + '4. Prevention tips '
+                    + 'Be direct and actionable. No need to search external docs.'
+                ));
+
+                aiSolutionCache[code] = text;
+                solEl.className = 'kcs-ai-solution';
+                solEl.innerHTML = '<div class="kcs-ai-label">&#9733; AI Solution</div>' + escapeHtml(text);
+                btn.innerHTML = '&#10003; Solved';
+                btn.className = 'btn-ai-fix done';
+            } catch (err) {
+                solEl.className = 'kcs-ai-solution';
+                solEl.innerHTML = '<div class="kcs-ai-label">&#9733; AI Solution</div>Failed to get AI solution: ' + escapeHtml(err.message);
+                btn.disabled = false;
+                btn.innerHTML = '&#9733; Retry';
+            }
+        }
+
+        async function fetchAllAISolutions() {
+            var btn = document.getElementById('btnAllAISolutions');
+            if (!btn || !allKcsSuggestions.length) return;
+
+            btn.disabled = true;
+            btn.innerHTML = '&#8987; Analyzing all codes...';
+
+            for (var i = 0; i < allKcsSuggestions.length; i++) {
+                var s = allKcsSuggestions[i];
+                if (aiSolutionCache[s.code]) continue;
+                await fetchAISolution(i, s.code, null);
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = '&#10003; All Solutions Loaded';
+            btn.className = 'btn btn-primary';
+            btn.style.borderColor = 'rgba(63,185,80,0.5)';
+            btn.style.background = 'rgba(63,185,80,0.1)';
+            btn.style.color = 'var(--healthy)';
+        }
+
+        // --- Level Filter ---
+        function filterLevel(level, btn) {
+            currentLevelFilter = level;
+            document.querySelectorAll('.filter-chip').forEach(function(c) { c.classList.remove('active'); });
+            btn.classList.add('active');
+
+            if (level === 'INFO' && !includeInfoLevel) {
+                includeInfoLevel = true;
+                loadLogData();
+                return;
+            }
+            applyFilters();
+        }
+
+        function applyFilters() {
+            var search = (document.getElementById('logSearch').value || '').toLowerCase();
+            var filtered = allLogEntries;
+
+            if (currentLevelFilter) {
+                filtered = filtered.filter(function(e) { return e.level === currentLevelFilter; });
+            }
+
+            if (search) {
+                filtered = filtered.filter(function(e) {
+                    return (e.message && e.message.toLowerCase().indexOf(search) !== -1)
+                        || (e.logger && e.logger.toLowerCase().indexOf(search) !== -1)
+                        || (e.jboss_code && e.jboss_code.toLowerCase().indexOf(search) !== -1)
+                        || (e.thread && e.thread.toLowerCase().indexOf(search) !== -1);
+                });
+            }
+
+            renderLogTable(filtered);
+        }
+
+        // --- Log Table ---
+        function renderLogTable(entries) {
+            var tbody = document.getElementById('logBody');
+            document.getElementById('logEntryCount').textContent = entries.length + ' entries';
+            var showServer = entries.length > 0 && entries[0].server_name != null;
+            var colCount = showServer ? 8 : 7;
+
+            var thead = document.querySelector('#logTable thead tr');
+            if (thead) {
+                var hdr = '<th style="width: 28px;"></th>';
+                if (showServer) hdr += '<th>Server</th>';
+                hdr += '<th>Timestamp</th><th>Level</th><th>Code</th><th>Logger</th><th>Thread</th><th style="min-width: 350px;">Message</th>';
+                thead.innerHTML = hdr;
+            }
+
+            if (entries.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center; color: var(--text-muted); padding: 24px;">No log entries found</td></tr>';
+                return;
+            }
+
+            var shown = entries.slice(0, 500);
+            var groupedRows = shown.map(function(e, idx) {
+                var hasStack = e.stacktrace && e.stacktrace.length > 0;
+                var stackIcon = hasStack ? '<span class="has-stack-icon" title="Has stacktrace">S</span>' : '';
+                var codeHtml = e.jboss_code ? '<span class="log-code">' + escapeHtml(e.jboss_code) + '</span>' : '<span style="color:var(--text-muted);">-</span>';
+                var msgText = e.message || '';
+                if (msgText.length > 200) msgText = msgText.substring(0, 200) + '...';
+                var serverCell = showServer ? '<td class="mono" style="font-size:11px;"><span class="badge badge-info">' + escapeHtml(e.server_name || '') + '</span></td>' : '';
+
+                return '<tr class="log-row" onclick="toggleLogDetail(' + idx + ')">'
+                    + '<td style="text-align:center;">' + stackIcon + '</td>'
+                    + serverCell
+                    + '<td class="mono" style="font-size:11px; white-space:nowrap;">' + formatLogTs(e.timestamp) + '</td>'
+                    + '<td><span class="level-badge ' + e.level + '">' + e.level + '</span></td>'
+                    + '<td>' + codeHtml + '</td>'
+                    + '<td class="log-logger" title="' + escapeHtml(e.logger || '') + '">' + escapeHtml(shortLogger(e.logger)) + '</td>'
+                    + '<td class="mono" style="font-size:11px;">' + escapeHtml(e.thread || '-') + '</td>'
+                    + '<td class="log-message">' + escapeHtml(msgText) + '</td>'
+                    + '</tr>'
+                    + '<tr class="log-detail-row hidden" id="logDetail' + idx + '">'
+                    + '<td colspan="' + colCount + '">'
+                    + '<div class="log-detail-inner">'
+                    + '<div class="detail-meta">'
+                    + '<div class="detail-meta-item">Level:<strong>' + e.level + '</strong></div>'
+                    + '<div class="detail-meta-item">Timestamp:<strong>' + escapeHtml(e.timestamp || '-') + '</strong></div>'
+                    + '<div class="detail-meta-item">Thread:<strong>' + escapeHtml(e.thread || '-') + '</strong></div>'
+                    + (e.jboss_code ? '<div class="detail-meta-item">Code:<strong>' + escapeHtml(e.jboss_code) + '</strong></div>' : '')
+                    + '<div class="detail-meta-item">Logger:<strong>' + escapeHtml((e.logger || '').replace(/[\[\]]/g, '')) + '</strong></div>'
+                    + '</div>'
+                    + '<div class="detail-full-msg">' + escapeHtml(e.message || '') + '</div>'
+                    + (hasStack ? '<div class="stacktrace-box">' + e.stacktrace.map(highlightStackFrame).join('\n') + '</div>' : '')
+                    + (e.jboss_code ? '<div style="margin-top:10px;"><a class="kcs-link" href="https://access.redhat.com/search/#/knowledgebase?q=' + encodeURIComponent(e.jboss_code) + '&p=1&rows=10" target="_blank" rel="noopener">Search Red Hat KCS for ' + escapeHtml(e.jboss_code) + '</a></div>' : '')
+                    + '</div>'
+                    + '</td>'
+                    + '</tr>';
+            });
+
+            paginateTable('logBody', groupedRows);
+        }
+
+        function toggleLogDetail(idx) {
+            var detail = document.getElementById('logDetail' + idx);
+            if (!detail) return;
+            var row = detail.previousElementSibling;
+            if (detail.classList.contains('hidden')) {
+                detail.classList.remove('hidden');
+                if (row) row.classList.add('expanded');
+            } else {
+                detail.classList.add('hidden');
+                if (row) row.classList.remove('expanded');
+            }
+        }
+
+        // --- AI Analysis ---
+        async function runAILogAnalysis() {
+            var el = document.getElementById('aiLogContent');
+            el.className = 'ai-content loading';
+            el.textContent = 'Analyzing server log errors and warnings...';
+            try {
+                var text = await fetchAPI('/jboss/analyze-logs');
+                el.className = 'ai-content';
+                el.textContent = text;
+            } catch (err) {
+                el.className = 'ai-content';
+                el.textContent = 'Failed to load AI analysis: ' + err.message;
+            }
+        }
+
+        async function runAILogAnalysisFull() {
+            var el = document.getElementById('aiLogContent');
+            el.className = 'ai-content loading';
+            el.textContent = 'Running deep analysis of server logs (this may take longer)...';
+            try {
+                var text = await fetchAPI('/jboss/analyze-logs?depth=deep');
+                el.className = 'ai-content';
+                el.textContent = text;
+            } catch (err) {
+                el.className = 'ai-content';
+                el.textContent = 'Failed to load AI analysis: ' + err.message;
+            }
+        }
+
+        // --- Load Data ---
+        async function loadLogData() {
+            try {
+                var endpoint = includeInfoLevel ? '/server-logs/all' : '/server-logs';
+                var data = await fetchData(endpoint);
+
+                if (data.error) {
+                    document.getElementById('logBody').innerHTML =
+                        '<tr><td colspan="7" style="text-align:center; color: var(--critical); padding: 24px;">' + escapeHtml(data.error) + '</td></tr>';
+                    return;
+                }
+
+                allLogEntries = data.entries || [];
+                allKcsSuggestions = data.kcs_suggestions || [];
+
+                renderStatCards(data);
+                renderKcsSuggestions(allKcsSuggestions);
+                applyFilters();
+            } catch (err) {
+                showToast('Failed to load server logs: ' + err.message, 'error');
+                document.getElementById('logBody').innerHTML =
+                    '<tr><td colspan="7" style="text-align:center; color: var(--critical); padding: 24px;">Failed to load: ' + escapeHtml(err.message) + '</td></tr>';
+            }
+        }
+
+        setupAutoRefresh(loadLogData);
+        loadLogData();
+    </script>
+</body>
+</html>

@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Domain Topology - JBoss Monitor</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <style>
+        .mode-banner {
+            padding: 12px 20px;
+            border-radius: var(--radius);
+            margin-bottom: 20px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            backdrop-filter: blur(4px);
+        }
+        .mode-banner.domain {
+            background: rgba(0,212,255,0.04);
+            border: 1px solid rgba(0,212,255,0.15);
+            color: var(--accent);
+            box-shadow: 0 0 20px rgba(0,212,255,0.04);
+        }
+        .mode-banner.standalone {
+            background: rgba(255,170,0,0.04);
+            border: 1px solid rgba(255,170,0,0.15);
+            color: #ffaa00;
+            box-shadow: 0 0 20px rgba(255,170,0,0.04);
+        }
+        .mode-banner .mode-icon {
+            font-size: 20px;
+        }
+        .mode-banner .mode-label {
+            font-weight: 700;
+            font-size: 14px;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .host-card {
+            margin-bottom: 20px;
+        }
+        .host-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .host-header .host-name {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            letter-spacing: 0.3px;
+        }
+        .badge-dc {
+            background: rgba(0,212,255,0.08);
+            color: var(--accent);
+            font-size: 9px;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            border: 1px solid rgba(0,212,255,0.2);
+            box-shadow: 0 0 8px rgba(0,212,255,0.08);
+            font-family: var(--font-mono);
+        }
+        .badge-slave {
+            background: rgba(255,255,255,0.03);
+            color: var(--text-muted);
+            font-size: 9px;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            border: 1px solid rgba(0,212,255,0.06);
+            font-family: var(--font-mono);
+        }
+
+        .server-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .server-table th {
+            text-align: left;
+            padding: 10px 12px;
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(0,212,255,0.02);
+            font-family: var(--font-mono);
+        }
+        .server-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(0,212,255,0.04);
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+            font-size: 12px;
+        }
+        .server-table tr:last-child td {
+            border-bottom: none;
+        }
+        .server-table tr.clickable {
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .server-table tr.clickable:hover {
+            background: rgba(0,212,255,0.03);
+        }
+
+        .status-started {
+            color: var(--healthy);
+            font-weight: 700;
+            text-shadow: 0 0 8px rgba(0,255,136,0.3);
+        }
+        .status-stopped {
+            color: var(--critical);
+            font-weight: 700;
+            text-shadow: 0 0 8px rgba(255,34,68,0.3);
+        }
+        .status-disabled {
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .server-detail-row td {
+            padding: 0 !important;
+            border-bottom: 1px solid var(--border-color) !important;
+        }
+        .server-detail-panel {
+            padding: 16px 20px;
+            background: rgba(0,212,255,0.015);
+            border-top: 1px solid rgba(0,212,255,0.08);
+        }
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+        .detail-section h5 {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: var(--accent);
+            margin: 0 0 8px 0;
+            font-family: var(--font-mono);
+            font-weight: 700;
+            opacity: 0.7;
+        }
+        .detail-section .kv-list {
+            font-size: 12px;
+        }
+        .detail-section .kv-list .kv-key {
+            color: var(--text-muted);
+        }
+        .detail-section .kv-list .kv-value {
+            color: var(--text-primary);
+        }
+
+        .heap-bar-inline {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .heap-bar-inline .progress-bar {
+            width: 80px;
+            height: 6px;
+        }
+        .heap-bar-inline .heap-pct {
+            font-size: 12px;
+            min-width: 40px;
+            font-family: var(--font-mono);
+        }
+
+        .group-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .group-chip {
+            padding: 14px 20px;
+            background: rgba(0,212,255,0.02);
+            border: 1px solid rgba(0,212,255,0.1);
+            border-radius: var(--radius);
+            min-width: 200px;
+            backdrop-filter: blur(4px);
+            transition: all 0.25s;
+            position: relative;
+        }
+        .group-chip:hover {
+            border-color: rgba(0,212,255,0.25);
+            box-shadow: 0 0 15px rgba(0,212,255,0.06);
+        }
+        .group-chip::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 3px;
+            height: 100%;
+            background: linear-gradient(180deg, var(--accent), var(--neon-purple));
+            border-radius: var(--radius) 0 0 var(--radius);
+            opacity: 0.5;
+        }
+        .group-chip .group-name {
+            font-weight: 700;
+            font-size: 13px;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+            font-family: var(--font-mono);
+        }
+        .group-chip .group-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        .ds-mini-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin-top: 8px;
+        }
+        .ds-mini-table th {
+            text-align: left;
+            padding: 5px 8px;
+            color: var(--accent);
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid rgba(0,212,255,0.06);
+            font-family: var(--font-mono);
+        }
+        .ds-mini-table td {
+            padding: 5px 8px;
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+            font-size: 11px;
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar"></div>
+
+    <div class="main-content">
+        <div id="pageHeader"></div>
+
+        <div class="content">
+            <!-- Mode Banner -->
+            <div id="modeBanner" class="mode-banner domain" style="display:none;">
+                <span class="mode-icon">&#127760;</span>
+                <div>
+                    <div class="mode-label" id="modeLabel">Detecting mode...</div>
+                    <div id="modeDesc" style="font-size:12px;opacity:0.7;margin-top:2px;">Connecting to management interface</div>
+                </div>
+            </div>
+
+            <!-- Stat Cards -->
+            <div class="stats-row" id="statCards">
+                <div class="stat-card">
+                    <div class="stat-label">Total Hosts</div>
+                    <div class="stat-value" id="statTotalHosts">--</div>
+                    <div class="stat-sub">Host controllers</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Servers</div>
+                    <div class="stat-value" id="statTotalServers">--</div>
+                    <div class="stat-sub">Server instances</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Running</div>
+                    <div class="stat-value healthy" id="statRunning">--</div>
+                    <div class="stat-sub">Active servers</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Stopped</div>
+                    <div class="stat-value" id="statStopped">--</div>
+                    <div class="stat-sub">Inactive servers</div>
+                </div>
+            </div>
+
+            <!-- Server Groups (domain mode only) -->
+            <div class="card" id="serverGroupsCard" style="display:none;">
+                <div class="card-header">
+                    <h3>Server Groups</h3>
+                    <span class="badge badge-info" id="groupCount">0</span>
+                </div>
+                <div class="card-body">
+                    <div class="group-chips" id="groupChips">
+                        <span style="color:var(--text-muted);font-size:13px;">No server groups found</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Host Topology -->
+            <div id="hostCards">
+                <div class="card">
+                    <div class="card-body" style="text-align:center;padding:40px;color:var(--text-muted);">
+                        Loading topology...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+    <script>
+        document.getElementById('sidebar').outerHTML = renderSidebar();
+        document.getElementById('pageHeader').outerHTML = renderPageHeader(
+            'Domain Topology',
+            'JBoss EAP host controllers, server instances, and server groups'
+        );
+        setActiveNav();
+
+        var expandedServers = {};
+
+        function formatUptime(ms) {
+            if (!ms || ms <= 0) return '--';
+            var seconds = Math.floor(ms / 1000);
+            var days = Math.floor(seconds / 86400);
+            var hours = Math.floor((seconds % 86400) / 3600);
+            var minutes = Math.floor((seconds % 3600) / 60);
+            var parts = [];
+            if (days > 0) parts.push(days + 'd');
+            if (hours > 0) parts.push(hours + 'h');
+            if (minutes > 0) parts.push(minutes + 'm');
+            if (parts.length === 0) parts.push((seconds % 60) + 's');
+            return parts.join(' ');
+        }
+
+        function statusClass(status) {
+            if (!status) return 'status-stopped';
+            var s = status.toUpperCase();
+            if (s === 'STARTED' || s === 'RUNNING') return 'status-started';
+            if (s === 'STOPPED') return 'status-stopped';
+            return 'status-disabled';
+        }
+
+        function statusLabel(status) {
+            if (!status) return 'UNKNOWN';
+            return status.toUpperCase();
+        }
+
+        function heapBarHtml(pct, usedMb, maxMb) {
+            if (pct === undefined || pct === null) return '<span style="color:var(--text-muted)">--</span>';
+            var cls = pct >= 85 ? 'critical' : pct >= 60 ? 'warning' : 'healthy';
+            return '<div class="heap-bar-inline">'
+                + '<div class="progress-bar"><div class="fill ' + cls + '" style="width:' + Math.min(pct, 100) + '%"></div></div>'
+                + '<span class="heap-pct ' + cls + '">' + pct.toFixed(1) + '%</span>'
+                + '</div>';
+        }
+
+        async function loadTopology() {
+            try {
+                var data = await fetchData('/domain/topology');
+                if (data.error) {
+                    showToast('Topology error: ' + data.error, 'error');
+                    return;
+                }
+                renderTopology(data);
+            } catch (err) {
+                showToast('Failed to load topology: ' + err.message, 'error');
+                document.getElementById('hostCards').innerHTML =
+                    '<div class="card"><div class="card-body" style="text-align:center;padding:40px;color:var(--critical);">'
+                    + 'Failed to connect: ' + escapeHtml(err.message) + '</div></div>';
+            }
+        }
+
+        function renderTopology(data) {
+            var banner = document.getElementById('modeBanner');
+            banner.style.display = 'flex';
+
+            if (data.mode === 'DOMAIN') {
+                banner.className = 'mode-banner domain';
+                document.getElementById('modeLabel').textContent = 'Domain Mode';
+                document.getElementById('modeDesc').textContent =
+                    (data.product_name || 'JBoss EAP') + ' ' + (data.product_version || '') + ' — Domain Controller';
+            } else {
+                banner.className = 'mode-banner standalone';
+                document.getElementById('modeLabel').textContent = 'Standalone Mode';
+                document.getElementById('modeDesc').textContent =
+                    (data.product_name || 'JBoss EAP') + ' ' + (data.product_version || '') + ' — Single server instance';
+            }
+
+            // Stat cards
+            document.getElementById('statTotalHosts').textContent = formatNumber(data.total_hosts || 0);
+            document.getElementById('statTotalServers').textContent = formatNumber(data.total_servers || 0);
+
+            var runEl = document.getElementById('statRunning');
+            runEl.textContent = formatNumber(data.running_servers || 0);
+            runEl.className = 'stat-value healthy';
+
+            var stopEl = document.getElementById('statStopped');
+            var stopped = data.stopped_servers || 0;
+            stopEl.textContent = formatNumber(stopped);
+            stopEl.className = 'stat-value' + (stopped > 0 ? ' critical' : '');
+
+            // Server groups
+            var groups = data.server_groups || [];
+            var groupsCard = document.getElementById('serverGroupsCard');
+            if (groups.length > 0) {
+                groupsCard.style.display = 'block';
+                document.getElementById('groupCount').textContent = groups.length;
+                document.getElementById('groupChips').innerHTML = groups.map(function(g) {
+                    return '<div class="group-chip">'
+                        + '<div class="group-name">' + escapeHtml(g.name) + '</div>'
+                        + '<div class="group-meta">Profile: ' + escapeHtml(g.profile || '--')
+                        + ' &middot; Socket: ' + escapeHtml(g.socket_binding_group || '--')
+                        + '</div></div>';
+                }).join('');
+            } else {
+                groupsCard.style.display = 'none';
+            }
+
+            // Host cards
+            var hosts = data.hosts || [];
+            var html = '';
+            hosts.forEach(function(host) {
+                var hostState = (host.host_state || 'unknown').toLowerCase();
+                var hostBadge = host.is_domain_controller
+                    ? '<span class="badge-dc">DOMAIN CONTROLLER</span>'
+                    : '<span class="badge-slave">SLAVE</span>';
+                if (data.mode !== 'DOMAIN') hostBadge = '';
+
+                var stateColor = hostState === 'running' ? 'var(--healthy)' : 'var(--critical)';
+
+                html += '<div class="card host-card">';
+                html += '<div class="card-header">';
+                html += '<div class="host-header">';
+                html += '<span class="host-name">' + escapeHtml(host.name) + '</span>';
+                html += hostBadge;
+                html += '<span class="badge badge-' + healthClass(hostState === 'running' ? 'HEALTHY' : 'CRITICAL') + '">'
+                    + hostState.toUpperCase() + '</span>';
+                html += '</div>';
+                html += '<span class="badge badge-info">' + (host.servers || []).length + ' servers</span>';
+                html += '</div>';
+
+                html += '<div class="card-body" style="padding:0;">';
+
+                var servers = host.servers || [];
+                if (servers.length === 0) {
+                    html += '<div style="padding:20px;color:var(--text-muted);text-align:center;font-size:13px;">No server instances configured</div>';
+                } else {
+                    html += '<table class="server-table">';
+                    html += '<thead><tr>';
+                    html += '<th>Server Name</th>';
+                    if (data.mode === 'DOMAIN') html += '<th>Group</th>';
+                    html += '<th>Status</th><th>State</th><th>Heap Used</th><th>Threads</th><th>Uptime</th>';
+                    html += '</tr></thead>';
+                    html += '<tbody>';
+
+                    servers.forEach(function(srv) {
+                        var isRunning = (srv.status || srv.server_state || '').toUpperCase() === 'STARTED'
+                            || (srv.server_state || '').toLowerCase() === 'running';
+                        var rowId = host.name + '/' + srv.name;
+                        var clickAttr = isRunning
+                            ? ' class="clickable" onclick="toggleServerDetail(\'' + escapeHtml(host.name) + '\',\'' + escapeHtml(srv.name) + '\')"'
+                            : '';
+
+                        html += '<tr' + clickAttr + '>';
+                        html += '<td><strong>' + escapeHtml(srv.name) + '</strong></td>';
+                        if (data.mode === 'DOMAIN') html += '<td>' + escapeHtml(srv.group || '--') + '</td>';
+                        html += '<td><span class="' + statusClass(srv.status || srv.server_state) + '">'
+                            + statusLabel(srv.status || srv.server_state) + '</span></td>';
+                        html += '<td>' + escapeHtml((srv.server_state || '--').toUpperCase()) + '</td>';
+                        html += '<td>' + heapBarHtml(srv.heap_used_percent, srv.heap_used_mb, srv.heap_max_mb) + '</td>';
+                        html += '<td>' + (srv.thread_count != null ? formatNumber(srv.thread_count) : '--') + '</td>';
+                        html += '<td>' + (srv.uptime_human || formatUptime(srv.uptime_ms) || '--') + '</td>';
+                        html += '</tr>';
+
+                        // Detail row (hidden by default)
+                        html += '<tr class="server-detail-row" id="detail-' + escapeHtml(host.name) + '-' + escapeHtml(srv.name) + '" style="display:none;">';
+                        html += '<td colspan="' + (data.mode === 'DOMAIN' ? 7 : 6) + '">';
+                        html += '<div class="server-detail-panel" id="detail-panel-' + escapeHtml(host.name) + '-' + escapeHtml(srv.name) + '">';
+                        html += '<div style="color:var(--text-muted);font-size:13px;">Loading details...</div>';
+                        html += '</div>';
+                        html += '</td></tr>';
+                    });
+
+                    html += '</tbody></table>';
+                }
+
+                html += '</div></div>';
+            });
+
+            document.getElementById('hostCards').innerHTML = html || '<div class="card"><div class="card-body" style="text-align:center;padding:40px;color:var(--text-muted);">No hosts found</div></div>';
+        }
+
+        async function toggleServerDetail(hostName, serverName) {
+            var rowId = 'detail-' + hostName + '-' + serverName;
+            var row = document.getElementById(rowId);
+            if (!row) return;
+
+            if (row.style.display === 'none') {
+                row.style.display = '';
+                loadServerDetail(hostName, serverName);
+            } else {
+                row.style.display = 'none';
+            }
+        }
+
+        async function loadServerDetail(hostName, serverName) {
+            var panelId = 'detail-panel-' + hostName + '-' + serverName;
+            var panel = document.getElementById(panelId);
+            if (!panel) return;
+
+            panel.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Loading details...</div>';
+
+            try {
+                var data = await fetchData('/domain/server/' + encodeURIComponent(hostName) + '/' + encodeURIComponent(serverName) + '/status');
+                if (data.error) {
+                    panel.innerHTML = '<div style="color:var(--critical);">Error: ' + escapeHtml(data.error) + '</div>';
+                    return;
+                }
+                renderServerDetail(panel, data);
+            } catch (err) {
+                panel.innerHTML = '<div style="color:var(--critical);">Failed: ' + escapeHtml(err.message) + '</div>';
+            }
+        }
+
+        function renderServerDetail(panel, d) {
+            var html = '<div class="detail-grid">';
+
+            // Server Info
+            html += '<div class="detail-section"><h5>Server Info</h5><div class="kv-list">';
+            html += kvRow('State', (d.server_state || '--').toUpperCase());
+            html += kvRow('Suspend', d.suspend_state || '--');
+            html += kvRow('Running Mode', d.running_mode || '--');
+            if (d.group) html += kvRow('Group', d.group);
+            if (d.profile_name) html += kvRow('Profile', d.profile_name);
+            if (d.socket_binding_port_offset !== undefined) html += kvRow('Port Offset', d.socket_binding_port_offset);
+            html += kvRow('Uptime', d.uptime_human || '--');
+            html += '</div></div>';
+
+            // JVM
+            html += '<div class="detail-section"><h5>JVM</h5><div class="kv-list">';
+            html += kvRow('VM', d.vm_name || '--');
+            html += kvRow('Version', d.vm_version || '--');
+            if (d.os) {
+                html += kvRow('OS', (d.os.name || '--') + ' ' + (d.os.arch || ''));
+                html += kvRow('CPUs', d.os.available_processors || '--');
+                if (d.os.process_cpu_percent !== undefined) html += kvRow('Process CPU', d.os.process_cpu_percent + '%');
+                if (d.os.system_cpu_percent !== undefined) html += kvRow('System CPU', d.os.system_cpu_percent + '%');
+            }
+            html += '</div></div>';
+
+            // Memory
+            if (d.heap) {
+                html += '<div class="detail-section"><h5>Memory</h5><div class="kv-list">';
+                html += kvRow('Heap Used', d.heap.used_mb + ' MB / ' + d.heap.max_mb + ' MB');
+                html += kvRow('Heap %', d.heap.used_percent + '%');
+                html += kvRow('Committed', d.heap.committed_mb + ' MB');
+                if (d.non_heap) html += kvRow('Non-Heap', d.non_heap.used_mb + ' MB');
+                html += '</div></div>';
+            }
+
+            // Threads
+            if (d.threads) {
+                html += '<div class="detail-section"><h5>Threads</h5><div class="kv-list">';
+                html += kvRow('Current', formatNumber(d.threads.thread_count));
+                html += kvRow('Peak', formatNumber(d.threads.peak_thread_count));
+                html += kvRow('Daemon', formatNumber(d.threads.daemon_thread_count));
+                html += kvRow('Total Started', formatNumber(d.threads.total_started));
+                html += '</div></div>';
+            }
+
+            html += '</div>';
+
+            // Datasources table
+            if (d.datasources && d.datasources.length > 0) {
+                html += '<div style="margin-top:16px;"><h5 style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin:0 0 8px 0;">Datasources</h5>';
+                html += '<table class="ds-mini-table"><thead><tr>';
+                html += '<th>Name</th><th>Type</th><th>Active</th><th>In Use</th><th>Available</th><th>Max Pool</th>';
+                html += '</tr></thead><tbody>';
+                d.datasources.forEach(function(ds) {
+                    html += '<tr>';
+                    html += '<td>' + escapeHtml(ds.name) + '</td>';
+                    html += '<td>' + escapeHtml(ds.type || '--') + '</td>';
+                    html += '<td>' + (ds.active_count || 0) + '</td>';
+                    html += '<td>' + (ds.in_use_count || 0) + '</td>';
+                    html += '<td>' + (ds.available_count || 0) + '</td>';
+                    html += '<td>' + (ds.max_pool_size || '--') + '</td>';
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div>';
+            }
+
+            // Deployments
+            if (d.deployments && d.deployments.length > 0) {
+                html += '<div style="margin-top:16px;"><h5 style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin:0 0 8px 0;">Deployments</h5>';
+                html += '<table class="ds-mini-table"><thead><tr>';
+                html += '<th>Name</th><th>Runtime Name</th><th>Status</th><th>Enabled</th>';
+                html += '</tr></thead><tbody>';
+                d.deployments.forEach(function(dep) {
+                    html += '<tr>';
+                    html += '<td>' + escapeHtml(dep.name) + '</td>';
+                    html += '<td>' + escapeHtml(dep.runtime_name || dep.name) + '</td>';
+                    html += '<td>' + escapeHtml(dep.status || '--') + '</td>';
+                    html += '<td>' + (dep.enabled ? '<span style="color:var(--healthy)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>';
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div>';
+            }
+
+            panel.innerHTML = html;
+        }
+
+        function kvRow(key, value) {
+            return '<span class="kv-key">' + escapeHtml(key) + '</span><span class="kv-value">' + escapeHtml(String(value)) + '</span>';
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadTopology();
+            setupAutoRefresh(loadTopology);
+        });
+    </script>
+</body>
+</html>
